@@ -1,0 +1,11 @@
+# Environments
+.env
+
+# Deployments
+.indexer
+
+# AI
+.claude/*
+
+# IDE's
+.vscode/*.json
