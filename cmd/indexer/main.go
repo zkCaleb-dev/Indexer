@@ -12,6 +12,7 @@ import (
 	"indexer/internal/config"
 	"indexer/internal/ledger"
 
+	"github.com/joho/godotenv"
 	rpcclient "github.com/stellar/go/clients/rpcclient"
 	"github.com/stellar/go/ingest/ledgerbackend"
 )
@@ -24,6 +25,7 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("❌ Invalid configuration: %v", err)
 	}
+	_ = godotenv.Load()
 
 	fmt.Printf("📡 RPC Server: %s\n", cfg.RPCServerURL)
 	fmt.Printf("🌐 Network: %s\n", cfg.NetworkPassphrase)
