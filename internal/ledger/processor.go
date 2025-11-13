@@ -1,8 +1,11 @@
 package ledger
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
+
+	"indexer/internal/models"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
@@ -13,6 +16,7 @@ type Processor struct {
 	networkPassphrase string
 	factoryContractID string
 	trackedContracts  map[string]bool
+	extractor         *DataExtractor
 }
 
 // NewProcessor creates a new Processor instance
@@ -21,6 +25,7 @@ func NewProcessor(networkPassphrase string, factoryContractID string) *Processor
 		networkPassphrase: networkPassphrase,
 		factoryContractID: factoryContractID,
 		trackedContracts:  make(map[string]bool),
+		extractor:         NewDataExtractor(networkPassphrase),
 	}
 }
 
@@ -184,19 +189,29 @@ func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerS
 		"tx_hash", tx.Hash.HexString(),
 	)
 
-	// Extraer nuevo contract ID del ReturnValue
-	// El factory devuelve el nuevo contract ID en SorobanMeta.ReturnValue
-	if metaV3, ok := tx.UnsafeMeta.GetV3(); ok {
-		if metaV3.SorobanMeta != nil {
-			// TODO: parsear returnValue para obtener nuevo contract ID
-			slog.Debug("Return value found",
-				"value", metaV3.SorobanMeta.ReturnValue,
-			)
-
-			// Por ahora, agregar factory a trackeados (placeholder)
-			// En siguiente paso extraeremos el contract ID real
-		}
+	// Extract complete deployment information
+	contract, err := p.extractor.ExtractDeployedContract(tx, p.factoryContractID, ledgerSeq)
+	if err != nil {
+		slog.Error("Failed to extract deployed contract",
+			"error", err,
+			"tx_hash", tx.Hash.HexString(),
+		)
+		return
 	}
+
+	// Add new contract to tracked contracts
+	p.trackedContracts[contract.ContractID] = true
+
+	slog.Info("New contract deployed",
+		"contract_id", contract.ContractID,
+		"deployer", contract.Deployer,
+		"fee", contract.FeeCharged,
+		"events_count", len(contract.InitEvents),
+		"storage_entries", len(contract.InitStorage),
+	)
+
+	// Print full contract details in DEBUG mode
+	p.printDeployedContract(contract)
 }
 
 func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32) {
@@ -206,36 +221,45 @@ func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contrac
 		"tx_hash", tx.Hash.HexString(),
 	)
 
-	// Extraer eventos
-	events, err := tx.GetContractEvents()
-	if err == nil && len(events) > 0 {
-		slog.Info("Contract events found",
+	// Extract complete activity information
+	activity, err := p.extractor.ExtractContractActivity(tx, contractID, ledgerSeq)
+	if err != nil {
+		slog.Error("Failed to extract contract activity",
+			"error", err,
 			"contract_id", contractID,
-			"event_count", len(events),
 		)
-		for i, event := range events {
-			slog.Debug("Contract event",
-				"event_index", i+1,
-				"topics_count", len(event.Body.V0.Topics),
-			)
-			// TODO: parsear topics y data
-		}
+		return
 	}
 
-	// Extraer cambios de estado
-	changes, err := tx.GetChanges()
-	if err == nil {
-		contractDataChanges := 0
-		for _, change := range changes {
-			if change.Type == xdr.LedgerEntryTypeContractData {
-				contractDataChanges++
-			}
-		}
-		if contractDataChanges > 0 {
-			slog.Info("Storage changes detected",
-				"contract_id", contractID,
-				"changes_count", contractDataChanges,
-			)
-		}
+	slog.Info("Contract activity extracted",
+		"contract_id", contractID,
+		"events_count", len(activity.Events),
+		"storage_changes", len(activity.StorageChanges),
+		"success", activity.Success,
+	)
+
+	// Print full activity details in DEBUG mode
+	p.printContractActivity(activity)
+}
+
+// printDeployedContract prints the deployed contract in JSON format
+func (p *Processor) printDeployedContract(contract *models.DeployedContract) {
+	jsonData, err := json.MarshalIndent(contract, "", "  ")
+	if err != nil {
+		slog.Error("Failed to marshal contract to JSON", "error", err)
+		return
 	}
+
+	slog.Debug("Deployed contract details", "json", string(jsonData))
+}
+
+// printContractActivity prints the contract activity in JSON format
+func (p *Processor) printContractActivity(activity *models.ContractActivity) {
+	jsonData, err := json.MarshalIndent(activity, "", "  ")
+	if err != nil {
+		slog.Error("Failed to marshal activity to JSON", "error", err)
+		return
+	}
+
+	slog.Debug("Contract activity details", "json", string(jsonData))
 }
