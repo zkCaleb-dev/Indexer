@@ -2,7 +2,7 @@
 .env
 
 # Deployments
-.indexer
+indexer
 
 # AI
 .claude/*
