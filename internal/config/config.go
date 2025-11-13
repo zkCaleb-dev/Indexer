@@ -18,6 +18,8 @@ type Config struct {
 
 	// Buffer size for RPC requests
 	BufferSize uint32
+
+	FactoryContractID string
 }
 
 // Load returns the configuration for the indexer
@@ -37,6 +39,8 @@ func Load() *Config {
 
 		// Buffer size for ledger requests
 		BufferSize: getEnvAsUint32("BUFFER_SIZE", 10),
+
+		FactoryContractID: getEnv("FACTORY_CONTRACT_SINGLE_RELEASE_ID", "CDQPREX7KCYB4KBGSVYOUUMQ5FXT6R4NO6R3LLXUUK3FODVBY2FKNTMZ"),
 	}
 }
 

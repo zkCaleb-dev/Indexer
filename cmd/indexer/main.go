@@ -25,6 +25,10 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("❌ Invalid configuration: %v", err)
 	}
+	// Validar factory contract ID
+	if cfg.FactoryContractID == "" {
+		log.Fatal("❌ Factory Contract ID is required in config")
+	}
 	_ = godotenv.Load()
 
 	fmt.Printf("📡 RPC Server: %s\n", cfg.RPCServerURL)
@@ -54,7 +58,7 @@ func main() {
 	})
 
 	// 4. Create processor
-	processor := ledger.NewProcessor(cfg.NetworkPassphrase)
+	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID)
 
 	// 5. Create streamer
 	streamer := ledger.NewStreamer(backend, processor)
