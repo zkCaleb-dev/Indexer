@@ -23,6 +23,9 @@ type Config struct {
 
 	// Logging level (debug, info, warn, error)
 	LogLevel string
+
+	// Database connection string
+	DatabaseURL string
 }
 
 // Load returns the configuration for the indexer
@@ -46,6 +49,9 @@ func Load() *Config {
 
 		// Logging level
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		// Database connection string
+		DatabaseURL: getEnv("DATABASE_URL", "postgresql://indexer:indexer_dev_password@localhost:5433/stellar_indexer?sslmode=disable"),
 	}
 }
 
