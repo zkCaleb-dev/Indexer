@@ -20,10 +20,12 @@ type Config struct {
 	BufferSize uint32
 
 	FactoryContractID string
+
+	// Logging level (debug, info, warn, error)
+	LogLevel string
 }
 
 // Load returns the configuration for the indexer
-// TODO: In the future, load this from env vars or config file
 func Load() *Config {
 	return &Config{
 
@@ -41,6 +43,9 @@ func Load() *Config {
 		BufferSize: getEnvAsUint32("BUFFER_SIZE", 10),
 
 		FactoryContractID: getEnv("FACTORY_CONTRACT_SINGLE_RELEASE_ID", "CDQPREX7KCYB4KBGSVYOUUMQ5FXT6R4NO6R3LLXUUK3FODVBY2FKNTMZ"),
+
+		// Logging level
+		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 }
 

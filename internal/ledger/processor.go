@@ -1,8 +1,8 @@
 package ledger
 
 import (
-	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
@@ -29,20 +29,29 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 	sequence := ledger.LedgerSequence()
 	txCount := ledger.CountTransactions()
 
-	fmt.Printf("\n=== Processing Ledger %d (Txs: %d) ===\n", sequence, txCount)
-	fmt.Printf("🏭 Factory looking for: %s\n", p.factoryContractID)
+	slog.Debug("Processing ledger",
+		"sequence", sequence,
+		"tx_count", txCount,
+		"factory", p.factoryContractID,
+	)
 
 	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(
 		p.networkPassphrase,
 		ledger,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create transaction reader: %w", err)
+		slog.Error("Failed to create transaction reader",
+			"sequence", sequence,
+			"error", err,
+		)
+		return err
 	}
 	defer reader.Close()
 
 	txIndex := 0
 	sorobanCount := 0
+	factoryDeployments := 0
+	trackedActivities := 0
 
 	for {
 		tx, err := reader.Read()
@@ -51,29 +60,33 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 		}
 		txIndex++
 
-		// Debug cada tx
 		successful := tx.Successful()
 		isSoroban := tx.IsSorobanTx()
 
-		fmt.Printf("  [Tx #%d] Success=%v Soroban=%v Hash=%x\n",
-			txIndex, successful, isSoroban, tx.Hash[:8])
+		slog.Debug("Transaction found",
+			"tx_index", txIndex,
+			"success", successful,
+			"soroban", isSoroban,
+			"hash", tx.Hash.HexString()[:16],
+		)
 
 		if !successful {
-			fmt.Printf("    ❌ Skipped: Failed\n")
 			continue
 		}
 
 		if !isSoroban {
-			fmt.Printf("    ⚪ Skipped: Not Soroban\n")
 			continue
 		}
 
 		sorobanCount++
-		fmt.Printf("    ⭐ SOROBAN TX #%d\n", sorobanCount)
 
 		// Extraer TODOS los contract IDs del footprint
 		contractIDs := p.extractAllContractIDs(tx)
-		fmt.Printf("    📍 Contract IDs found: %v\n", contractIDs)
+
+		slog.Debug("Soroban transaction processed",
+			"tx_index", txIndex,
+			"contract_ids", contractIDs,
+		)
 
 		// Verificar si el factory está en alguno de los contract IDs
 		isFactory := false
@@ -84,11 +97,13 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 			}
 		}
 
-		fmt.Printf("    🔍 Factory match: %v\n", isFactory)
-
 		if isFactory {
-			fmt.Printf("\n🎯🎯🎯 FACTORY MATCH! 🎯🎯🎯\n")
+			slog.Info("✅ New contract deployment detected",
+				"ledger", sequence,
+				"tx_hash", tx.Hash.HexString(),
+			)
 			p.handleFactoryDeployment(tx, sequence)
+			factoryDeployments++
 			continue
 		}
 
@@ -98,16 +113,26 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 			if p.trackedContracts[contractID] {
 				p.handleTrackedContractTx(tx, contractID, sequence)
 				foundTracked = true
+				trackedActivities++
 				break
 			}
 		}
 
 		if !foundTracked {
-			fmt.Printf("    ℹ️  Not tracked: %v\n", contractIDs)
+			slog.Debug("Contracts not tracked", "contract_ids", contractIDs)
 		}
 	}
 
-	fmt.Printf("📊 Summary: %d total txs, %d soroban txs\n", txIndex, sorobanCount)
+	if factoryDeployments > 0 || trackedActivities > 0 {
+		slog.Info("Ledger summary",
+			"sequence", sequence,
+			"total_txs", txIndex,
+			"soroban_txs", sorobanCount,
+			"deployments", factoryDeployments,
+			"tracked_activities", trackedActivities,
+		)
+	}
+
 	return nil
 }
 
@@ -154,16 +179,19 @@ func (p *Processor) extractAllContractIDs(tx ingest.LedgerTransaction) []string 
 }
 
 func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerSeq uint32) {
-	fmt.Printf("\n🏭 FACTORY DEPLOYMENT DETECTED!\n")
-	fmt.Printf("  Ledger: %d\n", ledgerSeq)
-	fmt.Printf("  Tx Hash: %x\n", tx.Hash)
+	slog.Info("Processing factory deployment",
+		"ledger", ledgerSeq,
+		"tx_hash", tx.Hash.HexString(),
+	)
 
 	// Extraer nuevo contract ID del ReturnValue
 	// El factory devuelve el nuevo contract ID en SorobanMeta.ReturnValue
 	if metaV3, ok := tx.UnsafeMeta.GetV3(); ok {
 		if metaV3.SorobanMeta != nil {
 			// TODO: parsear returnValue para obtener nuevo contract ID
-			fmt.Printf("  Return Value: %v\n", metaV3.SorobanMeta.ReturnValue)
+			slog.Debug("Return value found",
+				"value", metaV3.SorobanMeta.ReturnValue,
+			)
 
 			// Por ahora, agregar factory a trackeados (placeholder)
 			// En siguiente paso extraeremos el contract ID real
@@ -172,18 +200,24 @@ func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerS
 }
 
 func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32) {
-	fmt.Printf("\n📝 TRACKED CONTRACT ACTIVITY\n")
-	fmt.Printf("  Contract: %s\n", contractID)
-	fmt.Printf("  Ledger: %d\n", ledgerSeq)
-	fmt.Printf("  Tx Hash: %x\n", tx.Hash)
+	slog.Info("Tracked contract activity",
+		"contract_id", contractID,
+		"ledger", ledgerSeq,
+		"tx_hash", tx.Hash.HexString(),
+	)
 
 	// Extraer eventos
 	events, err := tx.GetContractEvents()
 	if err == nil && len(events) > 0 {
-		fmt.Printf("  🎉 Events: %d\n", len(events))
+		slog.Info("Contract events found",
+			"contract_id", contractID,
+			"event_count", len(events),
+		)
 		for i, event := range events {
-			fmt.Printf("    Event #%d:\n", i+1)
-			fmt.Printf("      Topics: %d\n", len(event.Body.V0.Topics))
+			slog.Debug("Contract event",
+				"event_index", i+1,
+				"topics_count", len(event.Body.V0.Topics),
+			)
 			// TODO: parsear topics y data
 		}
 	}
@@ -198,54 +232,10 @@ func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contrac
 			}
 		}
 		if contractDataChanges > 0 {
-			fmt.Printf("  💾 Storage Changes: %d\n", contractDataChanges)
-		}
-	}
-}
-
-// processTransaction processes a single transaction
-func (p *Processor) processTransaction(tx ingest.LedgerTransaction, index int) {
-	fmt.Printf("  [Tx #%d] Hash: %x\n", index, tx.Hash)
-
-	// Check if transaction was successful
-	successful := tx.Result.Result.Result.Code == xdr.TransactionResultCodeTxSuccess ||
-		tx.Result.Result.Result.Code == xdr.TransactionResultCodeTxFeeBumpInnerSuccess
-
-	fmt.Printf("  [Tx #%d] Success: %v\n", index, successful)
-
-	// Get operation count
-	var opCount int
-	switch tx.Envelope.Type {
-	case xdr.EnvelopeTypeEnvelopeTypeTx:
-		opCount = len(tx.Envelope.V1.Tx.Operations)
-	case xdr.EnvelopeTypeEnvelopeTypeTxV0:
-		opCount = len(tx.Envelope.V0.Tx.Operations)
-	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
-		innerTx := tx.Envelope.FeeBump.Tx.InnerTx.V1.Tx
-		opCount = len(innerTx.Operations)
-	}
-
-	fmt.Printf("  [Tx #%d] Operations: %d\n", index, opCount)
-
-	// Check for contract events (Soroban)
-	if successful {
-		p.checkForContractEvents(tx, index)
-	}
-}
-
-// checkForContractEvents checks if the transaction has contract events
-func (p *Processor) checkForContractEvents(tx ingest.LedgerTransaction, index int) {
-	// Contract events are in TransactionMeta V3
-	if metaV3, ok := tx.UnsafeMeta.GetV3(); ok {
-		// Verificar que SorobanMeta no sea nil
-		if metaV3.SorobanMeta != nil {
-			// Acceder directamente a Events (que SÍ es un slice)
-			totalEvents := len(metaV3.SorobanMeta.Events)
-
-			if totalEvents > 0 {
-				fmt.Printf("  [Tx #%d] 🎉 Contract Events Found: %d\n", index, totalEvents)
-				// TODO: Extract and process contract events here
-			}
+			slog.Info("Storage changes detected",
+				"contract_id", contractID,
+				"changes_count", contractDataChanges,
+			)
 		}
 	}
 }

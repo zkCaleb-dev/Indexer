@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +22,7 @@ func main() {
 	fmt.Println("🌟 Starting Stellar Indexer...")
 
 	// 1. Load configuration
+	_ = godotenv.Load()
 	cfg := config.Load()
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("❌ Invalid configuration: %v", err)
@@ -29,12 +31,34 @@ func main() {
 	if cfg.FactoryContractID == "" {
 		log.Fatal("❌ Factory Contract ID is required in config")
 	}
-	_ = godotenv.Load()
 
-	fmt.Printf("📡 RPC Server: %s\n", cfg.RPCServerURL)
-	fmt.Printf("🌐 Network: %s\n", cfg.NetworkPassphrase)
+	// 2. Configure logger
+	var logLevel slog.Level
+	switch cfg.LogLevel {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
 
-	// 2. Create RPC client to get latest ledger
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+	slog.SetDefault(logger)
+
+	slog.Info("Configuration loaded",
+		"rpc_server", cfg.RPCServerURL,
+		"network", cfg.NetworkPassphrase,
+		"log_level", cfg.LogLevel,
+	)
+
+	// 3. Create RPC client to get latest ledger
 	rpcClient := rpcclient.NewClient(cfg.RPCServerURL, &http.Client{})
 	ctx := context.Background()
 
@@ -47,23 +71,26 @@ func main() {
 		}
 		// Start from 10 ledgers before latest to be safe
 		startLedger = health.LatestLedger - 10
-		fmt.Printf("📊 Latest ledger: %d, starting from: %d\n", health.LatestLedger, startLedger)
+		slog.Info("Starting from recent ledger",
+			"latest", health.LatestLedger,
+			"starting_from", startLedger,
+		)
 	}
 
-	// 3. Create RPCLedgerBackend
+	// 4. Create RPCLedgerBackend
 	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
 		RPCServerURL: cfg.RPCServerURL,
 		BufferSize:   cfg.BufferSize,
 		HttpClient:   &http.Client{},
 	})
 
-	// 4. Create processor
+	// 5. Create processor
 	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID)
 
-	// 5. Create streamer
+	// 6. Create streamer
 	streamer := ledger.NewStreamer(backend, processor)
 
-	// 6. Setup graceful shutdown
+	// 7. Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -82,14 +109,15 @@ func main() {
 	// Wait for interrupt or error
 	select {
 	case <-sigChan:
-		fmt.Println("\n⚠️  Interrupt received, shutting down...")
+		slog.Warn("Interrupt received, shutting down...")
 		cancel()
 		if err := streamer.Stop(); err != nil {
-			log.Printf("❌ Error stopping streamer: %v", err)
+			slog.Error("Error stopping streamer", "error", err)
 		}
 	case err := <-errChan:
-		log.Fatalf("❌ Streamer error: %v", err)
+		slog.Error("Streamer error", "error", err)
+		os.Exit(1)
 	}
 
-	fmt.Println("👋 Indexer stopped")
+	slog.Info("Indexer stopped")
 }
