@@ -12,6 +12,7 @@ import (
 
 	"indexer/internal/config"
 	"indexer/internal/ledger"
+	"indexer/internal/storage"
 
 	"github.com/joho/godotenv"
 	rpcclient "github.com/stellar/go/clients/rpcclient"
@@ -58,9 +59,17 @@ func main() {
 		"log_level", cfg.LogLevel,
 	)
 
-	// 3. Create RPC client to get latest ledger
-	rpcClient := rpcclient.NewClient(cfg.RPCServerURL, &http.Client{})
+	// 3. Initialize database connection
 	ctx := context.Background()
+	repository, err := storage.NewPostgresRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("❌ Failed to connect to database: %v", err)
+	}
+	defer repository.Close()
+	slog.Info("Database connected successfully")
+
+	// 4. Create RPC client to get latest ledger
+	rpcClient := rpcclient.NewClient(cfg.RPCServerURL, &http.Client{})
 
 	// Get latest ledger from RPC if not specified in config
 	startLedger := cfg.StartLedger
@@ -77,17 +86,17 @@ func main() {
 		)
 	}
 
-	// 4. Create RPCLedgerBackend
+	// 5. Create RPCLedgerBackend
 	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
 		RPCServerURL: cfg.RPCServerURL,
 		BufferSize:   cfg.BufferSize,
 		HttpClient:   &http.Client{},
 	})
 
-	// 5. Create processor
-	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID)
+	// 6. Create processor with database repository
+	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID, repository)
 
-	// 6. Create streamer
+	// 7. Create streamer
 	streamer := ledger.NewStreamer(backend, processor)
 
 	// 7. Setup graceful shutdown

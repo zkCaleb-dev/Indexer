@@ -1,11 +1,13 @@
 package ledger
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 
 	"indexer/internal/models"
+	"indexer/internal/storage"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
@@ -17,15 +19,17 @@ type Processor struct {
 	factoryContractID string
 	trackedContracts  map[string]bool
 	extractor         *DataExtractor
+	repository        storage.Repository
 }
 
 // NewProcessor creates a new Processor instance
-func NewProcessor(networkPassphrase string, factoryContractID string) *Processor {
+func NewProcessor(networkPassphrase string, factoryContractID string, repository storage.Repository) *Processor {
 	return &Processor{
 		networkPassphrase: networkPassphrase,
 		factoryContractID: factoryContractID,
 		trackedContracts:  make(map[string]bool),
 		extractor:         NewDataExtractor(networkPassphrase),
+		repository:        repository,
 	}
 }
 
@@ -202,6 +206,36 @@ func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerS
 	// Add new contract to tracked contracts
 	p.trackedContracts[contract.ContractID] = true
 
+	// Save deployed contract to database
+	ctx := context.Background()
+	if err := p.repository.SaveDeployedContract(ctx, contract); err != nil {
+		slog.Error("Failed to save deployed contract to database",
+			"error", err,
+			"contract_id", contract.ContractID,
+		)
+		// Don't return - continue processing even if DB save fails
+	}
+
+	// Save initialization events
+	if len(contract.InitEvents) > 0 {
+		if err := p.repository.SaveContractEvents(ctx, contract.InitEvents); err != nil {
+			slog.Error("Failed to save contract events to database",
+				"error", err,
+				"contract_id", contract.ContractID,
+			)
+		}
+	}
+
+	// Save initialization storage
+	if len(contract.InitStorage) > 0 {
+		if err := p.repository.SaveStorageEntries(ctx, contract.InitStorage); err != nil {
+			slog.Error("Failed to save storage entries to database",
+				"error", err,
+				"contract_id", contract.ContractID,
+			)
+		}
+	}
+
 	slog.Info("New contract deployed",
 		"contract_id", contract.ContractID,
 		"deployer", contract.Deployer,
@@ -229,6 +263,36 @@ func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contrac
 			"contract_id", contractID,
 		)
 		return
+	}
+
+	// Save contract activity to database
+	ctx := context.Background()
+	if err := p.repository.SaveContractActivity(ctx, activity); err != nil {
+		slog.Error("Failed to save contract activity to database",
+			"error", err,
+			"contract_id", contractID,
+		)
+		// Don't return - continue processing even if DB save fails
+	}
+
+	// Save activity events
+	if len(activity.Events) > 0 {
+		if err := p.repository.SaveContractEvents(ctx, activity.Events); err != nil {
+			slog.Error("Failed to save activity events to database",
+				"error", err,
+				"contract_id", contractID,
+			)
+		}
+	}
+
+	// Save activity storage changes
+	if len(activity.StorageChanges) > 0 {
+		if err := p.repository.SaveStorageEntries(ctx, activity.StorageChanges); err != nil {
+			slog.Error("Failed to save activity storage changes to database",
+				"error", err,
+				"contract_id", contractID,
+			)
+		}
 	}
 
 	slog.Info("Contract activity extracted",
