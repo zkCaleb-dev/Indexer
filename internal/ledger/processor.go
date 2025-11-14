@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"sync"
 
 	"indexer/internal/models"
 	"indexer/internal/storage"
@@ -18,6 +19,7 @@ type Processor struct {
 	networkPassphrase string
 	factoryContractID string
 	trackedContracts  map[string]bool
+	mu                sync.RWMutex // Protects trackedContracts
 	extractor         *DataExtractor
 	repository        storage.Repository
 }
@@ -119,7 +121,11 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 		// Check tracked contracts
 		foundTracked := false
 		for _, contractID := range contractIDs {
-			if p.trackedContracts[contractID] {
+			p.mu.RLock()
+			isTracked := p.trackedContracts[contractID]
+			p.mu.RUnlock()
+
+			if isTracked {
 				p.handleTrackedContractTx(tx, contractID, sequence)
 				foundTracked = true
 				trackedActivities++
@@ -204,7 +210,9 @@ func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerS
 	}
 
 	// Add new contract to tracked contracts
+	p.mu.Lock()
 	p.trackedContracts[contract.ContractID] = true
+	p.mu.Unlock()
 
 	// Save deployed contract to database
 	ctx := context.Background()
