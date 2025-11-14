@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"sync"
 
+	"indexer/internal/extraction"
 	"indexer/internal/models"
+	"indexer/internal/orchestrator"
+	"indexer/internal/services"
 	"indexer/internal/storage"
 
 	"github.com/stellar/go/ingest"
@@ -20,8 +23,9 @@ type Processor struct {
 	factoryContractID string
 	trackedContracts  map[string]bool
 	mu                sync.RWMutex // Protects trackedContracts
-	extractor         *DataExtractor
+	extractor         *extraction.DataExtractor
 	repository        storage.Repository
+	orchestrator      *orchestrator.Orchestrator // Optional: for new service-based architecture
 }
 
 // NewProcessor creates a new Processor instance
@@ -30,8 +34,27 @@ func NewProcessor(networkPassphrase string, factoryContractID string, repository
 		networkPassphrase: networkPassphrase,
 		factoryContractID: factoryContractID,
 		trackedContracts:  make(map[string]bool),
-		extractor:         NewDataExtractor(networkPassphrase),
+		extractor:         extraction.NewDataExtractor(networkPassphrase),
 		repository:        repository,
+		orchestrator:      nil, // Will be set later via SetOrchestrator if needed
+	}
+}
+
+// SetOrchestrator sets the orchestrator for service-based processing (optional)
+func (p *Processor) SetOrchestrator(orch *orchestrator.Orchestrator) {
+	p.orchestrator = orch
+}
+
+// toProcessedTx converts an ingest.LedgerTransaction to *services.ProcessedTx
+// Returns a pointer to avoid copying large structs when passing to services
+func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32) *services.ProcessedTx {
+	return &services.ProcessedTx{
+		Tx:          tx,
+		Hash:        tx.Hash.HexString(),
+		LedgerSeq:   ledgerSeq,
+		Success:     tx.Successful(),
+		IsSoroban:   tx.IsSorobanTx(),
+		ContractIDs: p.extractAllContractIDs(tx),
 	}
 }
 
@@ -113,7 +136,14 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 				"ledger", sequence,
 				"tx_hash", tx.Hash.HexString(),
 			)
-			p.handleFactoryDeployment(tx, sequence)
+
+			// Process via orchestrator services
+			processedTx := p.toProcessedTx(tx, sequence)
+			ctx := context.Background()
+			if err := p.orchestrator.ProcessTx(ctx, processedTx); err != nil {
+				slog.Error("Orchestrator processing failed", "error", err)
+			}
+
 			factoryDeployments++
 			continue
 		}
@@ -191,69 +221,6 @@ func (p *Processor) extractAllContractIDs(tx ingest.LedgerTransaction) []string 
 	}
 
 	return contractIDs
-}
-
-func (p *Processor) handleFactoryDeployment(tx ingest.LedgerTransaction, ledgerSeq uint32) {
-	slog.Info("Processing factory deployment",
-		"ledger", ledgerSeq,
-		"tx_hash", tx.Hash.HexString(),
-	)
-
-	// Extract complete deployment information
-	contract, err := p.extractor.ExtractDeployedContract(tx, p.factoryContractID, ledgerSeq)
-	if err != nil {
-		slog.Error("Failed to extract deployed contract",
-			"error", err,
-			"tx_hash", tx.Hash.HexString(),
-		)
-		return
-	}
-
-	// Add new contract to tracked contracts
-	p.mu.Lock()
-	p.trackedContracts[contract.ContractID] = true
-	p.mu.Unlock()
-
-	// Save deployed contract to database
-	ctx := context.Background()
-	if err := p.repository.SaveDeployedContract(ctx, contract); err != nil {
-		slog.Error("Failed to save deployed contract to database",
-			"error", err,
-			"contract_id", contract.ContractID,
-		)
-		// Don't return - continue processing even if DB save fails
-	}
-
-	// Save initialization events
-	if len(contract.InitEvents) > 0 {
-		if err := p.repository.SaveContractEvents(ctx, contract.InitEvents); err != nil {
-			slog.Error("Failed to save contract events to database",
-				"error", err,
-				"contract_id", contract.ContractID,
-			)
-		}
-	}
-
-	// Save initialization storage
-	if len(contract.InitStorage) > 0 {
-		if err := p.repository.SaveStorageEntries(ctx, contract.InitStorage); err != nil {
-			slog.Error("Failed to save storage entries to database",
-				"error", err,
-				"contract_id", contract.ContractID,
-			)
-		}
-	}
-
-	slog.Info("New contract deployed",
-		"contract_id", contract.ContractID,
-		"deployer", contract.Deployer,
-		"fee", contract.FeeCharged,
-		"events_count", len(contract.InitEvents),
-		"storage_entries", len(contract.InitStorage),
-	)
-
-	// Print full contract details in DEBUG mode
-	p.printDeployedContract(contract)
 }
 
 func (p *Processor) handleTrackedContractTx(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32) {

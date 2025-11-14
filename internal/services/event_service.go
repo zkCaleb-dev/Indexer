@@ -24,7 +24,7 @@ func NewEventService(eventPrefix string, repository storage.Repository) *EventSe
 }
 
 // Process handles event filtering and extraction
-func (s *EventService) Process(ctx context.Context, tx ProcessedTx) error {
+func (s *EventService) Process(ctx context.Context, tx *ProcessedTx) error {
 	// TODO: Extract events from transaction
 	// TODO: Filter by prefix (e.g., "tw_*")
 	// TODO: Verify event belongs to tracked contract

@@ -24,7 +24,8 @@ type Service interface {
 	// Process handles a single transaction
 	// Returns error only for critical failures that should stop the indexer
 	// Returns nil if processing succeeded or if transaction should be skipped
-	Process(ctx context.Context, tx ProcessedTx) error
+	// Note: tx is passed by reference (pointer) to avoid copying large structs
+	Process(ctx context.Context, tx *ProcessedTx) error
 
 	// Name returns the service name for logging
 	Name() string

@@ -24,7 +24,7 @@ func NewDepositService(assetCode string, repository storage.Repository) *Deposit
 }
 
 // Process handles deposit detection from transfer events
-func (s *DepositService) Process(ctx context.Context, tx ProcessedTx) error {
+func (s *DepositService) Process(ctx context.Context, tx *ProcessedTx) error {
 	// TODO: Extract events from transaction
 	// TODO: Filter "transfer" events for specific asset (e.g., USDC)
 	// TODO: Check if "to" address is a tracked contract

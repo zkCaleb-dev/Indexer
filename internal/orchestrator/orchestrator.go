@@ -20,7 +20,7 @@ func New(services []services.Service) *Orchestrator {
 }
 
 // ProcessTx runs a transaction through all registered services
-func (o *Orchestrator) ProcessTx(ctx context.Context, tx services.ProcessedTx) error {
+func (o *Orchestrator) ProcessTx(ctx context.Context, tx *services.ProcessedTx) error {
 	slog.Debug("Orchestrator: Processing transaction",
 		"tx_hash", tx.Hash,
 		"ledger", tx.LedgerSeq,

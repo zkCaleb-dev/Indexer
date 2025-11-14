@@ -12,6 +12,8 @@ import (
 
 	"indexer/internal/config"
 	"indexer/internal/ledger"
+	"indexer/internal/orchestrator"
+	"indexer/internal/services"
 	"indexer/internal/storage"
 
 	"github.com/joho/godotenv"
@@ -95,6 +97,16 @@ func main() {
 
 	// 6. Create processor with database repository
 	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID, repository)
+
+	// 6.5. PHASE 3: Create orchestrator with services (ACTIVE MODE)
+	factoryService := services.NewFactoryService(cfg.FactoryContractID, cfg.NetworkPassphrase, repository)
+	orch := orchestrator.New([]services.Service{
+		factoryService,
+	})
+	processor.SetOrchestrator(orch)
+	slog.Info("Orchestrator enabled in ACTIVE mode",
+		"services", len(orch.Services()),
+	)
 
 	// 7. Create streamer
 	streamer := ledger.NewStreamer(backend, processor)
