@@ -100,8 +100,14 @@ func main() {
 
 	// 6.5. PHASE 3: Create orchestrator with services (ACTIVE MODE)
 	factoryService := services.NewFactoryService(cfg.FactoryContractID, cfg.NetworkPassphrase, repository)
+	activityService := services.NewActivityService(cfg.NetworkPassphrase, repository)
+
+	// Wire services together: FactoryService notifies ActivityService of new deployments
+	factoryService.SetActivityService(activityService)
+
 	orch := orchestrator.New([]services.Service{
 		factoryService,
+		activityService,
 	})
 	processor.SetOrchestrator(orch)
 	slog.Info("Orchestrator enabled in ACTIVE mode",

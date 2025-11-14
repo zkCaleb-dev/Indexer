@@ -14,6 +14,7 @@ type FactoryService struct {
 	networkPassphrase string
 	repository        storage.Repository
 	extractor         *extraction.DataExtractor
+	activityService   *ActivityService // Optional: to notify when new contracts are deployed
 }
 
 // NewFactoryService creates a new FactoryService instance
@@ -23,7 +24,13 @@ func NewFactoryService(factoryContractID string, networkPassphrase string, repos
 		networkPassphrase: networkPassphrase,
 		repository:        repository,
 		extractor:         extraction.NewDataExtractor(networkPassphrase),
+		activityService:   nil, // Will be set via SetActivityService if needed
 	}
+}
+
+// SetActivityService sets the activity service to notify on new deployments
+func (s *FactoryService) SetActivityService(activityService *ActivityService) {
+	s.activityService = activityService
 }
 
 // Process handles factory deployment detection
@@ -87,6 +94,11 @@ func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
 		"events_count", len(contract.InitEvents),
 		"storage_entries", len(contract.InitStorage),
 	)
+
+	// Notify ActivityService to start tracking this contract
+	if s.activityService != nil {
+		s.activityService.AddTrackedContract(contract.ContractID)
+	}
 
 	return nil
 }

@@ -24,6 +24,48 @@ func NewDataExtractor(networkPassphrase string) *DataExtractor {
 	}
 }
 
+// ExtractAllContractIDs extracts all contract IDs from the transaction footprint
+func ExtractAllContractIDs(tx ingest.LedgerTransaction) []string {
+	var contractIDs []string
+	seen := make(map[string]bool) // Para evitar duplicados
+
+	v1Envelope, ok := tx.GetTransactionV1Envelope()
+	if !ok {
+		return contractIDs
+	}
+
+	// Helper para extraer contract ID de un ledger key
+	extractFromKey := func(ledgerKey xdr.LedgerKey) {
+		contractData, ok := ledgerKey.GetContractData()
+		if !ok {
+			return
+		}
+
+		// Convertir a formato strkey (C...)
+		contractIdStr, err := contractData.Contract.String()
+		if err != nil {
+			return
+		}
+
+		if contractIdStr != "" && !seen[contractIdStr] {
+			contractIDs = append(contractIDs, contractIdStr)
+			seen[contractIdStr] = true
+		}
+	}
+
+	// Iterar sobre ReadWrite footprint
+	for _, ledgerKey := range v1Envelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
+		extractFromKey(ledgerKey)
+	}
+
+	// Iterar sobre ReadOnly footprint
+	for _, ledgerKey := range v1Envelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
+		extractFromKey(ledgerKey)
+	}
+
+	return contractIDs
+}
+
 // ExtractDeployedContract extracts complete deployment information from a factory transaction
 func (e *DataExtractor) ExtractDeployedContract(
 	tx ingest.LedgerTransaction,
