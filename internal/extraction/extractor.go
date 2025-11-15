@@ -41,7 +41,7 @@ func ExtractAllContractIDs(tx ingest.LedgerTransaction) []string {
 			return
 		}
 
-		// Convertir a formato strkey (C...)
+		// Convert to strkey format (C...)
 		contractIdStr, err := contractData.Contract.String()
 		if err != nil {
 			return
@@ -236,10 +236,14 @@ func (e *DataExtractor) parseContractEvent(
 	// Extract contract ID
 	contractID := "unknown"
 	if event.ContractId != nil {
-		// ContractId is a hash that needs to be encoded
-		contractIDBytes, err := event.ContractId.MarshalBinary()
-		if err == nil && len(contractIDBytes) > 0 {
-			contractID = hex.EncodeToString(contractIDBytes)
+		// Convert contract hash to STRKEY format (C...)
+		addr := xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: event.ContractId,
+		}
+		contractIDStr, err := addr.String()
+		if err == nil {
+			contractID = contractIDStr
 		}
 	}
 
@@ -368,6 +372,7 @@ func (e *DataExtractor) parseScValAsContractID(val xdr.ScVal) (string, error) {
 	// Check if it's an address
 	if val.Type == xdr.ScValTypeScvAddress {
 		addr := val.MustAddress()
+		// Return Stellar address in strkey format (starts with C for contracts)
 		return addr.String()
 	}
 
@@ -585,4 +590,111 @@ func (e *DataExtractor) ExtractContractActivity(
 	}
 
 	return activity, nil
+}
+
+// ExtractContractStorageChanges extracts all storage changes for a specific contract from a transaction
+func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32) ([]*models.StorageChange, error) {
+	var changes []*models.StorageChange
+
+	// Get all changes from the transaction
+	allChanges, err := tx.GetChanges()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction changes: %w", err)
+	}
+
+	txHash := tx.Hash.HexString()
+
+	for _, change := range allChanges {
+		// Only process ContractData changes
+		if change.Type != xdr.LedgerEntryTypeContractData {
+			continue
+		}
+
+		var contractData *xdr.ContractDataEntry
+		if change.Post != nil {
+			contractData = change.Post.Data.ContractData
+		} else {
+			contractData = change.Pre.Data.ContractData
+		}
+
+		// Verify this change belongs to the contract we're tracking
+		changeContractID, err := contractData.Contract.String()
+		if err != nil {
+			continue
+		}
+
+		if changeContractID != contractID {
+			continue
+		}
+
+		// Create the storage change record
+		storageChange := &models.StorageChange{
+			ContractID: contractID,
+			TxHash:     txHash,
+			LedgerSeq:  ledgerSeq,
+			Timestamp:  time.Now(), // TODO: Use ledger close time
+			Durability: contractData.Durability.String(),
+		}
+
+		// Determine change type and extract values
+		switch change.ChangeType {
+		case xdr.LedgerEntryChangeTypeLedgerEntryCreated:
+			storageChange.ChangeType = "CREATED"
+			storageChange.StorageKey = e.scValToMap(contractData.Key)
+			storageChange.StorageValue = e.scValToMap(contractData.Val)
+			storageChange.RawKey, _ = contractData.Key.MarshalBinary()
+			storageChange.RawValue, _ = contractData.Val.MarshalBinary()
+
+		case xdr.LedgerEntryChangeTypeLedgerEntryUpdated:
+			storageChange.ChangeType = "UPDATED"
+			oldData := change.Pre.Data.ContractData
+			newData := change.Post.Data.ContractData
+
+			storageChange.StorageKey = e.scValToMap(newData.Key)
+			storageChange.StorageValue = e.scValToMap(newData.Val)
+			storageChange.PreviousValue = e.scValToMap(oldData.Val)
+
+			storageChange.RawKey, _ = newData.Key.MarshalBinary()
+			storageChange.RawValue, _ = newData.Val.MarshalBinary()
+			storageChange.RawPreviousValue, _ = oldData.Val.MarshalBinary()
+
+		case xdr.LedgerEntryChangeTypeLedgerEntryRemoved:
+			storageChange.ChangeType = "REMOVED"
+			storageChange.StorageKey = e.scValToMap(contractData.Key)
+			storageChange.PreviousValue = e.scValToMap(contractData.Val)
+			storageChange.RawKey, _ = contractData.Key.MarshalBinary()
+			storageChange.RawPreviousValue, _ = contractData.Val.MarshalBinary()
+
+		case xdr.LedgerEntryChangeTypeLedgerEntryRestored:
+			storageChange.ChangeType = "RESTORED"
+			storageChange.StorageKey = e.scValToMap(contractData.Key)
+			storageChange.StorageValue = e.scValToMap(contractData.Val)
+			storageChange.RawKey, _ = contractData.Key.MarshalBinary()
+			storageChange.RawValue, _ = contractData.Val.MarshalBinary()
+
+		default:
+			// Skip STATE entries (they are markers, not actual changes)
+			continue
+		}
+
+		// Add operation index if this was caused by an operation
+		if change.Reason == ingest.LedgerEntryChangeReasonOperation {
+			opIdx := change.OperationIndex
+			storageChange.OperationIndex = &opIdx
+		}
+
+		changes = append(changes, storageChange)
+	}
+
+	return changes, nil
+}
+
+// scValToMap converts an ScVal to a map for JSON storage
+func (e *DataExtractor) scValToMap(val xdr.ScVal) map[string]interface{} {
+	result := e.scValToInterface(val)
+	if m, ok := result.(map[string]interface{}); ok {
+		return m
+	}
+	// If it's not a map, wrap it
+	return map[string]interface{}{"value": result}
 }

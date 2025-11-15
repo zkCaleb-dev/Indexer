@@ -619,6 +619,172 @@ func (r *PostgresRepository) GetLastProcessedLedger(ctx context.Context) (uint32
 	return sequence, nil
 }
 
+// SaveStorageChange saves a single storage change
+func (r *PostgresRepository) SaveStorageChange(ctx context.Context, change *models.StorageChange) error {
+	keyJSON, _ := json.Marshal(change.StorageKey)
+	valueJSON, _ := json.Marshal(change.StorageValue)
+	prevJSON, _ := json.Marshal(change.PreviousValue)
+
+	query := `
+		INSERT INTO storage_changes (
+			contract_id, change_type, storage_key, storage_value, previous_value,
+			raw_key, raw_value, raw_previous_value, durability,
+			tx_hash, ledger_seq, operation_index, timestamp
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`
+
+	_, err := r.pool.Exec(ctx, query,
+		change.ContractID,
+		change.ChangeType,
+		keyJSON,
+		valueJSON,
+		prevJSON,
+		change.RawKey,
+		change.RawValue,
+		change.RawPreviousValue,
+		change.Durability,
+		change.TxHash,
+		change.LedgerSeq,
+		change.OperationIndex,
+		change.Timestamp,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to save storage change: %w", err)
+	}
+
+	return nil
+}
+
+// SaveStorageChanges saves multiple storage changes in a transaction
+func (r *PostgresRepository) SaveStorageChanges(ctx context.Context, changes []*models.StorageChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	query := `
+		INSERT INTO storage_changes (
+			contract_id, change_type, storage_key, storage_value, previous_value,
+			raw_key, raw_value, raw_previous_value, durability,
+			tx_hash, ledger_seq, operation_index, timestamp
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`
+
+	for _, change := range changes {
+		keyJSON, _ := json.Marshal(change.StorageKey)
+		valueJSON, _ := json.Marshal(change.StorageValue)
+		prevJSON, _ := json.Marshal(change.PreviousValue)
+
+		_, err := tx.Exec(ctx, query,
+			change.ContractID,
+			change.ChangeType,
+			keyJSON,
+			valueJSON,
+			prevJSON,
+			change.RawKey,
+			change.RawValue,
+			change.RawPreviousValue,
+			change.Durability,
+			change.TxHash,
+			change.LedgerSeq,
+			change.OperationIndex,
+			change.Timestamp,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to save storage change: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// ListStorageChanges lists storage changes for a specific contract with pagination
+func (r *PostgresRepository) ListStorageChanges(ctx context.Context, contractID string, limit, offset int) ([]*models.StorageChange, error) {
+	query := `
+		SELECT
+			id, contract_id, change_type, storage_key, storage_value, previous_value,
+			raw_key, raw_value, raw_previous_value, durability,
+			tx_hash, ledger_seq, operation_index, timestamp, created_at
+		FROM storage_changes
+		WHERE contract_id = $1
+		ORDER BY ledger_seq DESC, id DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.pool.Query(ctx, query, contractID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list storage changes: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []*models.StorageChange
+
+	for rows.Next() {
+		var change models.StorageChange
+		var keyJSON, valueJSON, prevJSON []byte
+
+		err := rows.Scan(
+			&change.ID,
+			&change.ContractID,
+			&change.ChangeType,
+			&keyJSON,
+			&valueJSON,
+			&prevJSON,
+			&change.RawKey,
+			&change.RawValue,
+			&change.RawPreviousValue,
+			&change.Durability,
+			&change.TxHash,
+			&change.LedgerSeq,
+			&change.OperationIndex,
+			&change.Timestamp,
+			&change.CreatedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan storage change: %w", err)
+		}
+
+		// Unmarshal JSON fields
+		if len(keyJSON) > 0 {
+			if err := json.Unmarshal(keyJSON, &change.StorageKey); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal storage key: %w", err)
+			}
+		}
+
+		if len(valueJSON) > 0 {
+			if err := json.Unmarshal(valueJSON, &change.StorageValue); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal storage value: %w", err)
+			}
+		}
+
+		if len(prevJSON) > 0 {
+			if err := json.Unmarshal(prevJSON, &change.PreviousValue); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal previous value: %w", err)
+			}
+		}
+
+		changes = append(changes, &change)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating storage changes: %w", err)
+	}
+
+	return changes, nil
+}
+
 // Ping checks if the database connection is alive
 func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)

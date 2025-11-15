@@ -98,17 +98,29 @@ func main() {
 	// 6. Create processor with database repository
 	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID, repository)
 
-	// 6.5. PHASE 3: Create orchestrator with services (ACTIVE MODE)
+	// 6.5. Create orchestrator with all services (ACTIVE MODE)
+	// Create all services
 	factoryService := services.NewFactoryService(cfg.FactoryContractID, cfg.NetworkPassphrase, repository)
 	activityService := services.NewActivityService(cfg.NetworkPassphrase, repository)
+	eventService := services.NewEventService(cfg.NetworkPassphrase, repository)
+	storageChangeService := services.NewStorageChangeService(cfg.NetworkPassphrase, repository)
 
-	// Wire services together: FactoryService notifies ActivityService of new deployments
+	// Wire services together:
+	// 1. FactoryService → ActivityService (notifies of new deployments)
 	factoryService.SetActivityService(activityService)
 
+	// 2. ActivityService → EventService + StorageChangeService (propagates tracking)
+	activityService.SetEventService(eventService)
+	activityService.SetStorageChangeService(storageChangeService)
+
+	// Create orchestrator with all services in execution order
 	orch := orchestrator.New([]services.Service{
-		factoryService,
-		activityService,
+		factoryService,        // 1. Detects deployments
+		activityService,       // 2. Detects activity, updates tracking
+		eventService,          // 3. Extracts and saves events (tw_* filtered)
+		storageChangeService,  // 4. Extracts and saves storage changes
 	})
+
 	processor.SetOrchestrator(orch)
 	slog.Info("Orchestrator enabled in ACTIVE mode",
 		"services", len(orch.Services()),

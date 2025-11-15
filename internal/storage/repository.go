@@ -27,6 +27,11 @@ type Repository interface {
 	SaveContractActivity(ctx context.Context, activity *models.ContractActivity) error
 	ListContractActivities(ctx context.Context, contractID string, limit, offset int) ([]*models.ContractActivity, error)
 
+	// Storage Changes
+	SaveStorageChange(ctx context.Context, change *models.StorageChange) error
+	SaveStorageChanges(ctx context.Context, changes []*models.StorageChange) error
+	ListStorageChanges(ctx context.Context, contractID string, limit, offset int) ([]*models.StorageChange, error)
+
 	// Ledger Info
 	SaveLedgerInfo(ctx context.Context, info *models.LedgerInfo) error
 	GetLastProcessedLedger(ctx context.Context) (uint32, error)
