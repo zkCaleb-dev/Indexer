@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"indexer/internal/models"
 
@@ -235,32 +236,38 @@ func (r *PostgresRepository) SaveContractEvent(ctx context.Context, event *model
 	return nil
 }
 
-// SaveContractEvents saves multiple contract events in a transaction
+// SaveContractEvents saves multiple contract events using batch INSERT
 func (r *PostgresRepository) SaveContractEvents(ctx context.Context, events []models.ContractEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	query := `
+	// Build batch INSERT query with multiple VALUES
+	baseQuery := `
 		INSERT INTO contract_events (
 			contract_id, event_type, event_index, topics, data,
 			raw_data, tx_hash, ledger_seq, timestamp, in_successful_contract_call
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`
+		) VALUES `
 
-	for _, event := range events {
+	const paramsPerEvent = 10
+	values := make([]interface{}, 0, len(events)*paramsPerEvent)
+	placeholders := make([]string, 0, len(events))
+
+	for i, event := range events {
 		dataJSON, err := json.Marshal(event.Data)
 		if err != nil {
-			return fmt.Errorf("failed to marshal data: %w", err)
+			return fmt.Errorf("failed to marshal data for event %d: %w", i, err)
 		}
 
-		_, err = tx.Exec(ctx, query,
+		// Build placeholder: ($1,$2,$3,...,$10), ($11,$12,$13,...,$20), etc.
+		base := i * paramsPerEvent
+		placeholder := fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			base+1, base+2, base+3, base+4, base+5,
+			base+6, base+7, base+8, base+9, base+10)
+		placeholders = append(placeholders, placeholder)
+
+		// Append values in order
+		values = append(values,
 			event.ContractID,
 			event.EventType,
 			event.EventIndex,
@@ -272,15 +279,21 @@ func (r *PostgresRepository) SaveContractEvents(ctx context.Context, events []mo
 			event.Timestamp,
 			event.InSuccessfulContractCall,
 		)
-
-		if err != nil {
-			return fmt.Errorf("failed to save event: %w", err)
-		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	// Construct final query
+	query := baseQuery + strings.Join(placeholders, ",")
+
+	// Execute single batch INSERT
+	_, err := r.pool.Exec(ctx, query, values...)
+	if err != nil {
+		return fmt.Errorf("failed to batch insert events: %w", err)
 	}
+
+	slog.Debug("Batch INSERT completed",
+		"table", "contract_events",
+		"count", len(events),
+	)
 
 	return nil
 }
@@ -679,41 +692,47 @@ func (r *PostgresRepository) SaveStorageChange(ctx context.Context, change *mode
 	return nil
 }
 
-// SaveStorageChanges saves multiple storage changes in a transaction
+// SaveStorageChanges saves multiple storage changes using batch INSERT
 func (r *PostgresRepository) SaveStorageChanges(ctx context.Context, changes []*models.StorageChange) error {
 	if len(changes) == 0 {
 		return nil
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	query := `
+	// Build batch INSERT query with multiple VALUES
+	baseQuery := `
 		INSERT INTO storage_changes (
 			contract_id, change_type, storage_key, storage_value, previous_value,
 			raw_key, raw_value, raw_previous_value, durability,
 			tx_hash, ledger_seq, operation_index, timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`
+		) VALUES `
 
-	for _, change := range changes {
+	const paramsPerChange = 13
+	values := make([]interface{}, 0, len(changes)*paramsPerChange)
+	placeholders := make([]string, 0, len(changes))
+
+	for i, change := range changes {
 		keyJSON, err := json.Marshal(change.StorageKey)
 		if err != nil {
-			return fmt.Errorf("failed to marshal storage key: %w", err)
+			return fmt.Errorf("failed to marshal storage key for change %d: %w", i, err)
 		}
 		valueJSON, err := json.Marshal(change.StorageValue)
 		if err != nil {
-			return fmt.Errorf("failed to marshal storage value: %w", err)
+			return fmt.Errorf("failed to marshal storage value for change %d: %w", i, err)
 		}
 		prevJSON, err := json.Marshal(change.PreviousValue)
 		if err != nil {
-			return fmt.Errorf("failed to marshal previous value: %w", err)
+			return fmt.Errorf("failed to marshal previous value for change %d: %w", i, err)
 		}
 
-		_, err = tx.Exec(ctx, query,
+		// Build placeholder: ($1,$2,...,$13), ($14,$15,...,$26), etc.
+		base := i * paramsPerChange
+		placeholder := fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7,
+			base+8, base+9, base+10, base+11, base+12, base+13)
+		placeholders = append(placeholders, placeholder)
+
+		// Append values in order
+		values = append(values,
 			change.ContractID,
 			change.ChangeType,
 			keyJSON,
@@ -728,15 +747,21 @@ func (r *PostgresRepository) SaveStorageChanges(ctx context.Context, changes []*
 			change.OperationIndex,
 			change.Timestamp,
 		)
-
-		if err != nil {
-			return fmt.Errorf("failed to save storage change: %w", err)
-		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	// Construct final query
+	query := baseQuery + strings.Join(placeholders, ",")
+
+	// Execute single batch INSERT
+	_, err := r.pool.Exec(ctx, query, values...)
+	if err != nil {
+		return fmt.Errorf("failed to batch insert storage changes: %w", err)
 	}
+
+	slog.Debug("Batch INSERT completed",
+		"table", "storage_changes",
+		"count", len(changes),
+	)
 
 	return nil
 }
