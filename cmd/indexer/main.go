@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"indexer/internal/api"
 	"indexer/internal/config"
 	"indexer/internal/ledger"
 	"indexer/internal/ledger/retry"
+	"indexer/internal/metrics"
 	"indexer/internal/orchestrator"
 	"indexer/internal/services"
 	"indexer/internal/storage"
@@ -176,7 +179,21 @@ func main() {
 		"checkpoint_enabled", cfg.CheckpointInterval > 0,
 	)
 
-	// 7. Setup graceful shutdown
+	// 9. Initialize metrics with static values
+	metrics.BufferSize.Set(float64(cfg.BufferSize))
+
+	// 10. Start API server for metrics and REST endpoints
+	apiServer := api.NewServer(cfg.APIServerPort, repository)
+	if err := apiServer.Start(); err != nil {
+		log.Fatalf("❌ Failed to start API server: %v", err)
+	}
+	slog.Info("API server started successfully",
+		"port", cfg.APIServerPort,
+		"metrics_url", fmt.Sprintf("http://localhost:%d/metrics", cfg.APIServerPort),
+		"health_url", fmt.Sprintf("http://localhost:%d/health", cfg.APIServerPort),
+	)
+
+	// 11. Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -200,8 +217,18 @@ func main() {
 		if err := streamer.Stop(); err != nil {
 			slog.Error("Error stopping streamer", "error", err)
 		}
+		// Gracefully shutdown API server
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Error stopping API server", "error", err)
+		}
 	case err := <-errChan:
 		slog.Error("Streamer error", "error", err)
+		// Shutdown API server on error too
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		apiServer.Shutdown(shutdownCtx)
 		os.Exit(1)
 	}
 

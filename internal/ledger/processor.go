@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"indexer/internal/extraction"
+	"indexer/internal/metrics"
 	"indexer/internal/orchestrator"
 	"indexer/internal/services"
 	"indexer/internal/storage"
@@ -57,9 +58,17 @@ func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32,
 // Process processes a single ledger and all its transactions
 // Context is propagated for cancellation and timeout control
 func (p *Processor) Process(ctx context.Context, ledger xdr.LedgerCloseMeta) error {
+	start := time.Now()
 	sequence := ledger.LedgerSequence()
 	txCount := ledger.CountTransactions()
 	ledgerCloseTime := ledger.ClosedAt() // Get actual ledger close timestamp
+
+	// Record metrics after processing
+	defer func() {
+		metrics.LedgerProcessingDuration.Observe(time.Since(start).Seconds())
+		metrics.LedgersProcessed.Inc()
+		metrics.CurrentLedger.Set(float64(sequence))
+	}()
 
 	slog.Debug("Processing ledger",
 		"sequence", sequence,
@@ -110,6 +119,7 @@ func (p *Processor) Process(ctx context.Context, ledger xdr.LedgerCloseMeta) err
 		}
 
 		sorobanCount++
+		metrics.TransactionsProcessed.Inc()
 
 		// Extraer TODOS los contract IDs del footprint
 		contractIDs := extraction.ExtractAllContractIDs(tx)

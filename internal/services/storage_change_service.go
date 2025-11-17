@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"indexer/internal/extraction"
+	"indexer/internal/metrics"
 	"indexer/internal/models"
 	"indexer/internal/storage"
 
@@ -149,6 +150,10 @@ func (s *StorageChangeService) FlushLedger(ctx context.Context) error {
 	}
 
 	reduction := 100.0 * (1 - float64(compactedCount)/float64(originalCount))
+
+	// Record metrics
+	metrics.CompactorReductionPercent.Set(reduction)
+	metrics.StorageChangesSaved.Add(float64(compactedCount))
 
 	slog.Info("✅ StorageChangeService: Ledger flushed with compaction",
 		"ledger", s.currentLedger,

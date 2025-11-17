@@ -47,6 +47,9 @@ type Config struct {
 
 	// Checkpointing configuration
 	CheckpointInterval uint32 // Save progress every N ledgers (0 = disable)
+
+	// API Server configuration
+	APIServerPort int // HTTP API server port for metrics and REST endpoints
 }
 
 // Load returns the configuration for the indexer
@@ -92,6 +95,9 @@ func Load() *Config {
 
 		// Checkpointing configuration
 		CheckpointInterval: getEnvAsUint32("CHECKPOINT_INTERVAL", 100), // Save progress every 100 ledgers
+
+		// API Server configuration
+		APIServerPort: getEnvAsInt("API_SERVER_PORT", 2112), // Port for metrics and REST API
 	}
 }
 

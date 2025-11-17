@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"indexer/internal/extraction"
+	"indexer/internal/metrics"
 	"indexer/internal/storage"
 )
 
@@ -96,6 +97,9 @@ func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
 	if s.activityService != nil {
 		s.activityService.AddTrackedContract(contract.ContractID)
 	}
+
+	// Record deployment metric
+	metrics.DeploymentsDetected.Inc()
 
 	slog.Info("✅ FactoryService: Contract deployment processed",
 		"contract_id", contract.ContractID,

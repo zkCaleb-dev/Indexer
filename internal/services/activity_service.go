@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"indexer/internal/extraction"
+	"indexer/internal/metrics"
 	"indexer/internal/storage"
 )
 
@@ -105,7 +106,11 @@ func (s *ActivityService) Name() string {
 func (s *ActivityService) AddTrackedContract(contractID string) {
 	s.mu.Lock()
 	s.trackedContracts[contractID] = true
+	count := len(s.trackedContracts)
 	s.mu.Unlock()
+
+	// Update tracked contracts metric
+	metrics.TrackedContracts.Set(float64(count))
 
 	slog.Debug("ActivityService: Added contract to tracking", "contract_id", contractID)
 
