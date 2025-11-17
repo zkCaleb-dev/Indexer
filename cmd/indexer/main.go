@@ -128,6 +128,11 @@ func main() {
 		BufferSize:   cfg.BufferSize,
 		HttpClient:   httpClient, // Use shared HTTP client with connection pooling
 	})
+	slog.Info("RPCLedgerBackend configured",
+		"buffer_size", cfg.BufferSize,
+		"estimated_buffer_time_min", float64(cfg.BufferSize)*5.0/60.0, // ~5 sec per ledger
+		"estimated_memory_mb", cfg.BufferSize,                          // ~1MB per ledger
+	)
 
 	// 6. Create processor with database repository and factory map
 	processor := ledger.NewProcessor(cfg.NetworkPassphrase, factoryMap, repository)

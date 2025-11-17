@@ -24,7 +24,10 @@ type Config struct {
 	// Starting ledger sequence ( 0 means start from latest )
 	StartLedger uint32
 
-	// Buffer size for RPC requests
+	// Buffer size for RPC ledger retrieval
+	// Controls how many ledgers are pre-fetched and kept in memory before processing.
+	// Higher values = more memory usage but better throughput and resilience to network latency.
+	// Recommended: 150 (balance between memory and performance for optimized processing)
 	BufferSize uint32
 
 	// Factory contracts to monitor (supports multiple factories)
@@ -60,8 +63,8 @@ func Load() *Config {
 		// Start from latest ( 0 means we'll get it from GetHealth )
 		StartLedger: getEnvAsUint32("START_LEDGER", 0),
 
-		// Buffer size for ledger requests
-		BufferSize: getEnvAsUint32("BUFFER_SIZE", 10),
+		// Buffer size for ledger requests (optimized for batch processing + compaction)
+		BufferSize: getEnvAsUint32("BUFFER_SIZE", 150),
 
 		// Factory contracts to monitor
 		FactoryContracts: []FactoryConfig{
