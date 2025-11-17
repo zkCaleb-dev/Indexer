@@ -32,3 +32,11 @@ type Service interface {
 	// Name returns the service name for logging
 	Name() string
 }
+
+// Flushable is an optional interface for services that accumulate data per ledger
+// Services implementing this interface will have FlushLedger called when the ledger changes
+type Flushable interface {
+	// FlushLedger is called when moving to a new ledger
+	// Services should save accumulated data and reset their state
+	FlushLedger(ctx context.Context) error
+}

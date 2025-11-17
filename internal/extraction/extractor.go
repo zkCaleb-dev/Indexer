@@ -595,6 +595,47 @@ func (e *DataExtractor) ExtractContractActivity(
 	return activity, nil
 }
 
+// ExtractContractChangesRaw extracts raw ingest.Change objects for a specific contract
+// This is used by ChangeCompactor to optimize storage changes before saving
+func (e *DataExtractor) ExtractContractChangesRaw(tx ingest.LedgerTransaction, contractID string) ([]ingest.Change, error) {
+	var contractChanges []ingest.Change
+
+	// Get all changes from the transaction
+	allChanges, err := tx.GetChanges()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction changes: %w", err)
+	}
+
+	for _, change := range allChanges {
+		// Only process ContractData changes
+		if change.Type != xdr.LedgerEntryTypeContractData {
+			continue
+		}
+
+		var contractData *xdr.ContractDataEntry
+		if change.Post != nil {
+			contractData = change.Post.Data.ContractData
+		} else {
+			contractData = change.Pre.Data.ContractData
+		}
+
+		// Verify this change belongs to the contract we're tracking
+		changeContractID, err := contractData.Contract.String()
+		if err != nil {
+			continue
+		}
+
+		if changeContractID != contractID {
+			continue
+		}
+
+		// Add raw change to list
+		contractChanges = append(contractChanges, change)
+	}
+
+	return contractChanges, nil
+}
+
 // ExtractContractStorageChanges extracts all storage changes for a specific contract from a transaction
 func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32, ledgerCloseTime time.Time) ([]*models.StorageChange, error) {
 	var changes []*models.StorageChange
@@ -690,6 +731,11 @@ func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransactio
 	}
 
 	return changes, nil
+}
+
+// ScValToMap converts an ScVal to a map for JSON storage (public for services)
+func (e *DataExtractor) ScValToMap(val xdr.ScVal) map[string]interface{} {
+	return e.scValToMap(val)
 }
 
 // scValToMap converts an ScVal to a map for JSON storage
