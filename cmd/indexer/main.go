@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,10 +30,20 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("❌ Invalid configuration: %v", err)
 	}
-	// Validar factory contract ID
-	if cfg.FactoryContractID == "" {
-		log.Fatal("❌ Factory Contract ID is required in config")
+	// Validar factory contracts
+	if len(cfg.FactoryContracts) == 0 {
+		log.Fatal("❌ At least one factory contract is required in config")
 	}
+
+	// Build factory contracts map for easier lookup
+	factoryMap := make(map[string]string)
+	for _, factory := range cfg.FactoryContracts {
+		factoryMap[factory.ID] = factory.Type
+	}
+	slog.Info("Factory contracts configured",
+		"count", len(cfg.FactoryContracts),
+		"types", factoryMap,
+	)
 
 	// 2. Configure logger
 	var logLevel slog.Level
@@ -71,37 +80,61 @@ func main() {
 	defer repository.Close()
 	slog.Info("Database connected successfully")
 
-	// 4. Create RPC client to get latest ledger
-	rpcClient := rpcclient.NewClient(cfg.RPCServerURL, &http.Client{})
+	// 4. Create optimized HTTP client with connection pooling
+	httpClient := cfg.NewHTTPClient()
+	slog.Info("HTTP Client configured",
+		"timeout_sec", cfg.HTTPTimeout,
+		"max_idle_conns", cfg.HTTPMaxIdleConns,
+		"max_conns_per_host", cfg.HTTPMaxConnsPerHost,
+		"idle_timeout_sec", cfg.HTTPIdleConnTimeout,
+	)
 
-	// Get latest ledger from RPC if not specified in config
+	// 5. Check for saved progress (checkpoint/resume)
+	savedLedger, exists, err := repository.GetProgress(ctx)
+	if err != nil {
+		log.Fatalf("❌ Failed to check progress: %v", err)
+	}
+
 	startLedger := cfg.StartLedger
-	if startLedger == 0 {
+	if exists {
+		// Resume from saved checkpoint (+1 to start from next ledger)
+		startLedger = savedLedger + 1
+		slog.Info("Resuming from checkpoint",
+			"last_processed", savedLedger,
+			"resuming_from", startLedger,
+		)
+	} else if startLedger == 0 {
+		// No checkpoint and no config - get latest from RPC
+		rpcClient := rpcclient.NewClient(cfg.RPCServerURL, httpClient)
 		health, err := rpcClient.GetHealth(ctx)
 		if err != nil {
 			log.Fatalf("❌ Failed to get health from RPC: %v", err)
 		}
 		// Start from 10 ledgers before latest to be safe
 		startLedger = health.LatestLedger - 10
-		slog.Info("Starting from recent ledger",
+		slog.Info("Starting from recent ledger (no checkpoint)",
 			"latest", health.LatestLedger,
+			"starting_from", startLedger,
+		)
+	} else {
+		slog.Info("Starting from configured ledger (no checkpoint)",
 			"starting_from", startLedger,
 		)
 	}
 
-	// 5. Create RPCLedgerBackend
+	// 6. Create RPCLedgerBackend with shared HTTP client
 	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
 		RPCServerURL: cfg.RPCServerURL,
 		BufferSize:   cfg.BufferSize,
-		HttpClient:   &http.Client{},
+		HttpClient:   httpClient, // Use shared HTTP client with connection pooling
 	})
 
-	// 6. Create processor with database repository
-	processor := ledger.NewProcessor(cfg.NetworkPassphrase, cfg.FactoryContractID, repository)
+	// 6. Create processor with database repository and factory map
+	processor := ledger.NewProcessor(cfg.NetworkPassphrase, factoryMap, repository)
 
 	// 6.5. Create orchestrator with all services (ACTIVE MODE)
 	// Create all services
-	factoryService := services.NewFactoryService(cfg.FactoryContractID, cfg.NetworkPassphrase, repository)
+	factoryService := services.NewFactoryService(factoryMap, cfg.NetworkPassphrase, repository)
 	activityService := services.NewActivityService(cfg.NetworkPassphrase, repository)
 	eventService := services.NewEventService(cfg.NetworkPassphrase, repository)
 	storageChangeService := services.NewStorageChangeService(cfg.NetworkPassphrase, repository)
@@ -131,8 +164,12 @@ func main() {
 	retryConfig := retry.LoadConfig()
 	retryStrategy := retry.NewStrategy(retryConfig)
 
-	// 8. Create streamer with retry strategy
-	streamer := ledger.NewStreamer(backend, processor, retryStrategy)
+	// 8. Create streamer with retry strategy and checkpointing
+	streamer := ledger.NewStreamer(backend, processor, retryStrategy, repository, cfg.CheckpointInterval)
+	slog.Info("Streamer configured",
+		"checkpoint_interval", cfg.CheckpointInterval,
+		"checkpoint_enabled", cfg.CheckpointInterval > 0,
+	)
 
 	// 7. Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"indexer/internal/ledger/retry"
+	"indexer/internal/storage"
 
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/xdr"
@@ -13,18 +14,25 @@ import (
 
 // Streamer continuously polls ledgers from the backend and processes them
 type Streamer struct {
-	backend       ledgerbackend.LedgerBackend
-	processor     *Processor
-	retryStrategy retry.Strategy
+	backend            ledgerbackend.LedgerBackend
+	processor          *Processor
+	retryStrategy      retry.Strategy
+	repository         storage.Repository
+	checkpointInterval uint32 // Save progress every N ledgers (0 = disable)
 }
 
 // NewStreamer creates a new Streamer instance
-func NewStreamer(backend ledgerbackend.LedgerBackend, processor *Processor, retryStrategy retry.Strategy) *Streamer {
-	slog.Info("Streamer created with retry strategy", "strategy", retryStrategy.Name())
+func NewStreamer(backend ledgerbackend.LedgerBackend, processor *Processor, retryStrategy retry.Strategy, repository storage.Repository, checkpointInterval uint32) *Streamer {
+	slog.Info("Streamer created",
+		"retry_strategy", retryStrategy.Name(),
+		"checkpoint_interval", checkpointInterval,
+	)
 	return &Streamer{
-		backend:       backend,
-		processor:     processor,
-		retryStrategy: retryStrategy,
+		backend:            backend,
+		processor:          processor,
+		retryStrategy:      retryStrategy,
+		repository:         repository,
+		checkpointInterval: checkpointInterval,
 	}
 }
 
@@ -75,9 +83,9 @@ func (s *Streamer) Start(ctx context.Context, startLedger uint32) error {
 			return err
 		}
 
-		// Process the ledger with retry strategy
+		// Process the ledger with retry strategy, propagating context
 		err = s.retryStrategy.Execute(ctx, func() error {
-			return s.processor.Process(ledger)
+			return s.processor.Process(ctx, ledger)
 		})
 
 		if err != nil {
@@ -102,10 +110,21 @@ func (s *Streamer) Start(ctx context.Context, startLedger uint32) error {
 			)
 		}
 
+		// Save checkpoint periodically (if enabled)
+		if s.checkpointInterval > 0 && currentSeq%s.checkpointInterval == 0 {
+			if err := s.repository.SaveProgress(ctx, currentSeq); err != nil {
+				slog.Warn("Failed to save progress checkpoint",
+					"ledger", currentSeq,
+					"error", err,
+				)
+				// Don't fail the entire stream if checkpoint fails
+			} else {
+				slog.Info("Progress checkpoint saved", "ledger", currentSeq)
+			}
+		}
+
 		// Move to next ledger
 		currentSeq++
-
-		// TODO: Add checkpoint here to save progress
 	}
 }
 

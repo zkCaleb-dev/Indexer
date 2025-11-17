@@ -18,17 +18,17 @@ import (
 // Processor handles the processing of ledger data
 type Processor struct {
 	networkPassphrase string
-	factoryContractID string
+	factoryContracts  map[string]string // factory_id -> contract_type
 	extractor         *extraction.DataExtractor
 	repository        storage.Repository
 	orchestrator      *orchestrator.Orchestrator // Optional: for new service-based architecture
 }
 
 // NewProcessor creates a new Processor instance
-func NewProcessor(networkPassphrase string, factoryContractID string, repository storage.Repository) *Processor {
+func NewProcessor(networkPassphrase string, factoryContracts map[string]string, repository storage.Repository) *Processor {
 	return &Processor{
 		networkPassphrase: networkPassphrase,
-		factoryContractID: factoryContractID,
+		factoryContracts:  factoryContracts,
 		extractor:         extraction.NewDataExtractor(networkPassphrase),
 		repository:        repository,
 		orchestrator:      nil, // Will be set later via SetOrchestrator if needed
@@ -55,7 +55,8 @@ func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32,
 }
 
 // Process processes a single ledger and all its transactions
-func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
+// Context is propagated for cancellation and timeout control
+func (p *Processor) Process(ctx context.Context, ledger xdr.LedgerCloseMeta) error {
 	sequence := ledger.LedgerSequence()
 	txCount := ledger.CountTransactions()
 	ledgerCloseTime := ledger.ClosedAt() // Get actual ledger close timestamp
@@ -63,7 +64,7 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 	slog.Debug("Processing ledger",
 		"sequence", sequence,
 		"tx_count", txCount,
-		"factory", p.factoryContractID,
+		"factories_count", len(p.factoryContracts),
 	)
 
 	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(
@@ -118,24 +119,18 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 			"contract_ids", contractIDs,
 		)
 
-		// Verificar si el factory está en alguno de los contract IDs
-		isFactory := false
-		for _, contractID := range contractIDs {
-			if contractID == p.factoryContractID {
-				isFactory = true
-				break
-			}
-		}
+		// Verificar si algún factory está en los contract IDs y detectar su tipo
+		factoryType, isFactory := p.detectFactoryType(contractIDs)
 
 		if isFactory {
 			slog.Info("✅ New contract deployment detected",
 				"ledger", sequence,
 				"tx_hash", tx.Hash.HexString(),
+				"contract_type", factoryType,
 			)
 
 			// Process via orchestrator services
 			processedTx := p.toProcessedTx(tx, sequence, ledgerCloseTime)
-			ctx := context.Background()
 			if err := p.orchestrator.ProcessTx(ctx, processedTx); err != nil {
 				slog.Error("Orchestrator processing failed", "error", err)
 			}
@@ -146,7 +141,6 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 
 		// Process all other Soroban transactions through orchestrator (for ActivityService)
 		processedTx := p.toProcessedTx(tx, sequence, ledgerCloseTime)
-		ctx := context.Background()
 		if err := p.orchestrator.ProcessTx(ctx, processedTx); err != nil {
 			slog.Error("Orchestrator processing failed", "error", err)
 		}
@@ -162,5 +156,15 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 	}
 
 	return nil
+}
+
+// detectFactoryType checks if any contract ID matches a factory and returns its type
+func (p *Processor) detectFactoryType(contractIDs []string) (string, bool) {
+	for _, contractID := range contractIDs {
+		if contractType, exists := p.factoryContracts[contractID]; exists {
+			return contractType, true
+		}
+	}
+	return "", false
 }
 

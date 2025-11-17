@@ -10,7 +10,7 @@ import (
 
 // FactoryService detects and processes contract deployments from factory contracts
 type FactoryService struct {
-	factoryContractID string
+	factoryContracts  map[string]string // factory_id -> contract_type
 	networkPassphrase string
 	repository        storage.Repository
 	extractor         *extraction.DataExtractor
@@ -18,9 +18,9 @@ type FactoryService struct {
 }
 
 // NewFactoryService creates a new FactoryService instance
-func NewFactoryService(factoryContractID string, networkPassphrase string, repository storage.Repository) *FactoryService {
+func NewFactoryService(factoryContracts map[string]string, networkPassphrase string, repository storage.Repository) *FactoryService {
 	return &FactoryService{
-		factoryContractID: factoryContractID,
+		factoryContracts:  factoryContracts,
 		networkPassphrase: networkPassphrase,
 		repository:        repository,
 		extractor:         extraction.NewDataExtractor(networkPassphrase),
@@ -35,21 +35,15 @@ func (s *FactoryService) SetActivityService(activityService *ActivityService) {
 
 // Process handles factory deployment detection
 func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
-	// Check if factory contract is in the transaction footprint
-	isFactory := false
-	for _, contractID := range tx.ContractIDs {
-		if contractID == s.factoryContractID {
-			isFactory = true
-			break
-		}
-	}
+	// Check if any factory contract is in the transaction footprint
+	factoryID, contractType, isFactory := s.detectFactory(tx.ContractIDs)
 
 	if !isFactory {
 		return nil // Not a factory deployment, skip
 	}
 
 	// Extract complete deployment information
-	contract, err := s.extractor.ExtractDeployedContract(tx.Tx, s.factoryContractID, tx.LedgerSeq, tx.LedgerCloseTime)
+	contract, err := s.extractor.ExtractDeployedContract(tx.Tx, factoryID, tx.LedgerSeq, tx.LedgerCloseTime)
 	if err != nil {
 		slog.Error("FactoryService: Failed to extract deployed contract",
 			"error", err,
@@ -57,6 +51,9 @@ func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
 		)
 		return err
 	}
+
+	// Set the contract type (single-release or multi-release)
+	contract.ContractType = contractType
 
 	// Save deployed contract to database
 	if err := s.repository.SaveDeployedContract(ctx, contract); err != nil {
@@ -100,7 +97,23 @@ func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
 		s.activityService.AddTrackedContract(contract.ContractID)
 	}
 
+	slog.Info("✅ FactoryService: Contract deployment processed",
+		"contract_id", contract.ContractID,
+		"contract_type", contract.ContractType,
+		"factory_id", contract.FactoryContractID,
+	)
+
 	return nil
+}
+
+// detectFactory checks if any contract ID matches a factory and returns factory ID, type, and match status
+func (s *FactoryService) detectFactory(contractIDs []string) (string, string, bool) {
+	for _, contractID := range contractIDs {
+		if contractType, exists := s.factoryContracts[contractID]; exists {
+			return contractID, contractType, true
+		}
+	}
+	return "", "", false
 }
 
 // Name returns the service name

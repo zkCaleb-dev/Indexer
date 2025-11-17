@@ -45,8 +45,8 @@ func (r *PostgresRepository) SaveDeployedContract(ctx context.Context, contract 
 		INSERT INTO deployed_contracts (
 			contract_id, factory_contract_id, deployed_at_ledger, deployed_at_time,
 			tx_hash, deployer, fee_charged, cpu_instructions, memory_bytes,
-			init_params, memo, memo_type
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			init_params, memo, memo_type, contract_type
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (contract_id) DO NOTHING
 	`
 
@@ -63,6 +63,7 @@ func (r *PostgresRepository) SaveDeployedContract(ctx context.Context, contract 
 		initParamsJSON,
 		contract.Memo,
 		contract.MemoType,
+		contract.ContractType,
 	)
 
 	if err != nil {
@@ -78,7 +79,7 @@ func (r *PostgresRepository) GetDeployedContract(ctx context.Context, contractID
 		SELECT
 			contract_id, factory_contract_id, deployed_at_ledger, deployed_at_time,
 			tx_hash, deployer, fee_charged, cpu_instructions, memory_bytes,
-			init_params, memo, memo_type
+			init_params, memo, memo_type, contract_type
 		FROM deployed_contracts
 		WHERE contract_id = $1
 	`
@@ -99,6 +100,7 @@ func (r *PostgresRepository) GetDeployedContract(ctx context.Context, contractID
 		&initParamsJSON,
 		&contract.Memo,
 		&contract.MemoType,
+		&contract.ContractType,
 	)
 
 	if err == pgx.ErrNoRows {
@@ -121,7 +123,7 @@ func (r *PostgresRepository) ListDeployedContracts(ctx context.Context, limit, o
 		SELECT
 			contract_id, factory_contract_id, deployed_at_ledger, deployed_at_time,
 			tx_hash, deployer, fee_charged, cpu_instructions, memory_bytes,
-			init_params, memo, memo_type
+			init_params, memo, memo_type, contract_type
 		FROM deployed_contracts
 		ORDER BY deployed_at_ledger DESC
 		LIMIT $1 OFFSET $2
@@ -152,6 +154,7 @@ func (r *PostgresRepository) ListDeployedContracts(ctx context.Context, limit, o
 			&initParamsJSON,
 			&contract.Memo,
 			&contract.MemoType,
+			&contract.ContractType,
 		)
 
 		if err != nil {
@@ -812,6 +815,49 @@ func (r *PostgresRepository) ListStorageChanges(ctx context.Context, contractID 
 	}
 
 	return changes, nil
+}
+
+// SaveProgress saves the last processed ledger sequence for checkpoint/resume
+func (r *PostgresRepository) SaveProgress(ctx context.Context, ledgerSeq uint32) error {
+	query := `
+		INSERT INTO indexer_progress (id, last_ledger_processed)
+		VALUES (1, $1)
+		ON CONFLICT (id) DO UPDATE
+		SET last_ledger_processed = $1,
+		    updated_at = CURRENT_TIMESTAMP
+	`
+
+	_, err := r.pool.Exec(ctx, query, ledgerSeq)
+	if err != nil {
+		return fmt.Errorf("failed to save progress: %w", err)
+	}
+
+	slog.Debug("Progress checkpoint saved", "ledger", ledgerSeq)
+	return nil
+}
+
+// GetProgress retrieves the last processed ledger sequence
+// Returns (ledger, exists, error)
+func (r *PostgresRepository) GetProgress(ctx context.Context) (uint32, bool, error) {
+	query := `
+		SELECT last_ledger_processed
+		FROM indexer_progress
+		WHERE id = 1
+	`
+
+	var ledgerSeq uint32
+	err := r.pool.QueryRow(ctx, query).Scan(&ledgerSeq)
+
+	if err == pgx.ErrNoRows {
+		return 0, false, nil // No progress saved yet
+	}
+
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to get progress: %w", err)
+	}
+
+	slog.Info("Progress checkpoint found", "last_ledger", ledgerSeq)
+	return ledgerSeq, true, nil
 }
 
 // Ping checks if the database connection is alive

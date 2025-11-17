@@ -7,6 +7,7 @@ type DeployedContract struct {
 	// Identification
 	ContractID        string `json:"contract_id"`
 	FactoryContractID string `json:"factory_contract_id"`
+	ContractType      string `json:"contract_type"` // "single-release" or "multi-release"
 
 	// Deployment metadata
 	DeployedAtLedger uint32    `json:"deployed_at_ledger"`

@@ -36,6 +36,10 @@ type Repository interface {
 	SaveLedgerInfo(ctx context.Context, info *models.LedgerInfo) error
 	GetLastProcessedLedger(ctx context.Context) (uint32, error)
 
+	// Progress Checkpointing
+	SaveProgress(ctx context.Context, ledgerSeq uint32) error
+	GetProgress(ctx context.Context) (uint32, bool, error) // returns (ledger, exists, error)
+
 	// Health & Maintenance
 	Ping(ctx context.Context) error
 	Close() error

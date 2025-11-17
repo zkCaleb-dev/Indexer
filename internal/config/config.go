@@ -2,9 +2,17 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
+	"time"
 )
+
+// FactoryConfig represents a factory contract configuration
+type FactoryConfig struct {
+	ID   string // Contract ID (STRKEY format)
+	Type string // Contract type: "single-release" or "multi-release"
+}
 
 type Config struct {
 	// RPC Server URL
@@ -19,13 +27,23 @@ type Config struct {
 	// Buffer size for RPC requests
 	BufferSize uint32
 
-	FactoryContractID string
+	// Factory contracts to monitor (supports multiple factories)
+	FactoryContracts []FactoryConfig
 
 	// Logging level (debug, info, warn, error)
 	LogLevel string
 
 	// Database connection string
 	DatabaseURL string
+
+	// HTTP Client configuration
+	HTTPTimeout          int // Request timeout in seconds
+	HTTPMaxIdleConns     int // Max idle connections across all hosts
+	HTTPMaxConnsPerHost  int // Max connections per host
+	HTTPIdleConnTimeout  int // Idle connection timeout in seconds
+
+	// Checkpointing configuration
+	CheckpointInterval uint32 // Save progress every N ledgers (0 = disable)
 }
 
 // Load returns the configuration for the indexer
@@ -45,13 +63,32 @@ func Load() *Config {
 		// Buffer size for ledger requests
 		BufferSize: getEnvAsUint32("BUFFER_SIZE", 10),
 
-		FactoryContractID: getEnv("FACTORY_CONTRACT_SINGLE_RELEASE_ID", "CDQPREX7KCYB4KBGSVYOUUMQ5FXT6R4NO6R3LLXUUK3FODVBY2FKNTMZ"),
+		// Factory contracts to monitor
+		FactoryContracts: []FactoryConfig{
+			{
+				ID:   getEnv("FACTORY_CONTRACT_SINGLE_RELEASE_ID", "CDQPREX7KCYB4KBGSVYOUUMQ5FXT6R4NO6R3LLXUUK3FODVBY2FKNTMZ"),
+				Type: "single-release",
+			},
+			{
+				ID:   getEnv("FACTORY_CONTRACT_MULTI_RELEASE_ID", "CCAJPWPKSR6FY5Q5RYT5E3EIZQNDMDFYVVKJ656C5SUOIXQOQ4JQVWGV"),
+				Type: "multi-release",
+			},
+		},
 
 		// Logging level
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
 		// Database connection string
 		DatabaseURL: getEnv("DATABASE_URL", "postgresql://indexer:indexer_dev_password@localhost:5433/stellar_indexer?sslmode=disable"),
+
+		// HTTP Client configuration (optimized for RPC streaming)
+		HTTPTimeout:         getEnvAsInt("HTTP_TIMEOUT_SEC", 60),
+		HTTPMaxIdleConns:    getEnvAsInt("HTTP_MAX_IDLE_CONNS", 100),
+		HTTPMaxConnsPerHost: getEnvAsInt("HTTP_MAX_CONNS_PER_HOST", 100),
+		HTTPIdleConnTimeout: getEnvAsInt("HTTP_IDLE_CONN_TIMEOUT_SEC", 90),
+
+		// Checkpointing configuration
+		CheckpointInterval: getEnvAsUint32("CHECKPOINT_INTERVAL", 100), // Save progress every 100 ledgers
 	}
 }
 
@@ -86,4 +123,35 @@ func getEnvAsUint32(key string, defaultVal uint32) uint32 {
 		return defaultVal
 	}
 	return uint32(val)
+}
+
+// Helper function: get int env var with default
+func getEnvAsInt(key string, defaultVal int) int {
+	valStr := os.Getenv(key)
+	if valStr == "" {
+		return defaultVal
+	}
+
+	val, err := strconv.Atoi(valStr)
+	if err != nil {
+		return defaultVal
+	}
+	return val
+}
+
+// NewHTTPClient creates an optimized HTTP client with connection pooling
+// configured from the Config settings
+func (c *Config) NewHTTPClient() *http.Client {
+	transport := &http.Transport{
+		MaxIdleConns:        c.HTTPMaxIdleConns,
+		MaxIdleConnsPerHost: c.HTTPMaxConnsPerHost,
+		IdleConnTimeout:     time.Duration(c.HTTPIdleConnTimeout) * time.Second,
+		DisableKeepAlives:   false, // Enable keep-alive
+		DisableCompression:  false, // Enable compression
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(c.HTTPTimeout) * time.Second,
+	}
 }
