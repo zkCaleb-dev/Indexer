@@ -885,6 +885,185 @@ func (r *PostgresRepository) GetProgress(ctx context.Context) (uint32, bool, err
 	return ledgerSeq, true, nil
 }
 
+// CountDeployedContracts returns the total count of deployed contracts
+func (r *PostgresRepository) CountDeployedContracts(ctx context.Context, contractType *string) (int, error) {
+	query := `SELECT COUNT(*) FROM deployed_contracts`
+	args := []interface{}{}
+
+	if contractType != nil {
+		query += ` WHERE contract_type = $1`
+		args = append(args, *contractType)
+	}
+
+	var count int
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count contracts: %w", err)
+	}
+
+	return count, nil
+}
+
+// ListDeployedContractsFiltered lists deployed contracts with optional filters
+func (r *PostgresRepository) ListDeployedContractsFiltered(
+	ctx context.Context,
+	contractType *string,
+	deployer *string,
+	limit, offset int,
+) ([]*models.DeployedContract, error) {
+	query := `
+		SELECT
+			contract_id, factory_contract_id, deployed_at_ledger, deployed_at_time,
+			tx_hash, deployer, fee_charged, cpu_instructions, memory_bytes,
+			init_params, memo, memo_type, contract_type
+		FROM deployed_contracts
+	`
+
+	// Build WHERE clause
+	conditions := []string{}
+	args := []interface{}{}
+	argPos := 1
+
+	if contractType != nil {
+		conditions = append(conditions, fmt.Sprintf("contract_type = $%d", argPos))
+		args = append(args, *contractType)
+		argPos++
+	}
+
+	if deployer != nil {
+		conditions = append(conditions, fmt.Sprintf("deployer = $%d", argPos))
+		args = append(args, *deployer)
+		argPos++
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Add ORDER BY and pagination
+	query += fmt.Sprintf(" ORDER BY deployed_at_time DESC LIMIT $%d OFFSET $%d", argPos, argPos+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []*models.DeployedContract
+	for rows.Next() {
+		var contract models.DeployedContract
+		var initParamsJSON []byte
+
+		err := rows.Scan(
+			&contract.ContractID,
+			&contract.FactoryContractID,
+			&contract.DeployedAtLedger,
+			&contract.DeployedAtTime,
+			&contract.TxHash,
+			&contract.Deployer,
+			&contract.FeeCharged,
+			&contract.CPUInstructions,
+			&contract.MemoryBytes,
+			&initParamsJSON,
+			&contract.Memo,
+			&contract.MemoType,
+			&contract.ContractType,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan contract: %w", err)
+		}
+
+		// Unmarshal init_params
+		if err := json.Unmarshal(initParamsJSON, &contract.InitParams); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal init_params: %w", err)
+		}
+
+		contracts = append(contracts, &contract)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating contracts: %w", err)
+	}
+
+	return contracts, nil
+}
+
+// GetLatestStorageChanges returns the latest storage state for a contract
+// by getting the most recent value for each unique storage key
+func (r *PostgresRepository) GetLatestStorageChanges(ctx context.Context, contractID string) ([]*models.StorageChange, error) {
+	query := `
+		SELECT DISTINCT ON (storage_key)
+			contract_id,
+			change_type,
+			storage_key,
+			storage_value,
+			previous_value,
+			raw_key,
+			raw_value,
+			raw_previous_value,
+			durability,
+			tx_hash,
+			ledger_seq,
+			timestamp
+		FROM storage_changes
+		WHERE contract_id = $1
+		  AND change_type != 'REMOVED'
+		ORDER BY storage_key, ledger_seq DESC
+	`
+
+	rows, err := r.pool.Query(ctx, query, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest storage: %w", err)
+	}
+	defer rows.Close()
+
+	var changes []*models.StorageChange
+	for rows.Next() {
+		var change models.StorageChange
+		var keyJSON, valueJSON, prevValueJSON []byte
+
+		err := rows.Scan(
+			&change.ContractID,
+			&change.ChangeType,
+			&keyJSON,
+			&valueJSON,
+			&prevValueJSON,
+			&change.RawKey,
+			&change.RawValue,
+			&change.RawPreviousValue,
+			&change.Durability,
+			&change.TxHash,
+			&change.LedgerSeq,
+			&change.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan storage change: %w", err)
+		}
+
+		// Unmarshal JSONB fields
+		if err := json.Unmarshal(keyJSON, &change.StorageKey); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal storage_key: %w", err)
+		}
+		if err := json.Unmarshal(valueJSON, &change.StorageValue); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal storage_value: %w", err)
+		}
+		if prevValueJSON != nil {
+			if err := json.Unmarshal(prevValueJSON, &change.PreviousValue); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal previous_value: %w", err)
+			}
+		}
+
+		changes = append(changes, &change)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating storage changes: %w", err)
+	}
+
+	return changes, nil
+}
+
 // Ping checks if the database connection is alive
 func (r *PostgresRepository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)

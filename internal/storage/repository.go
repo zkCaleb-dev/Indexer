@@ -12,6 +12,8 @@ type Repository interface {
 	GetDeployedContract(ctx context.Context, contractID string) (*models.DeployedContract, error)
 	ListDeployedContracts(ctx context.Context, limit, offset int) ([]*models.DeployedContract, error)
 	GetTrackedContractIDs(ctx context.Context) ([]string, error)
+	CountDeployedContracts(ctx context.Context, contractType *string) (int, error)
+	ListDeployedContractsFiltered(ctx context.Context, contractType *string, deployer *string, limit, offset int) ([]*models.DeployedContract, error)
 
 	// Contract Events
 	SaveContractEvent(ctx context.Context, event *models.ContractEvent) error
@@ -31,6 +33,7 @@ type Repository interface {
 	SaveStorageChange(ctx context.Context, change *models.StorageChange) error
 	SaveStorageChanges(ctx context.Context, changes []*models.StorageChange) error
 	ListStorageChanges(ctx context.Context, contractID string, limit, offset int) ([]*models.StorageChange, error)
+	GetLatestStorageChanges(ctx context.Context, contractID string) ([]*models.StorageChange, error)
 
 	// Ledger Info
 	SaveLedgerInfo(ctx context.Context, info *models.LedgerInfo) error
