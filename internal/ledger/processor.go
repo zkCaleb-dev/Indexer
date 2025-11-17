@@ -178,3 +178,13 @@ func (p *Processor) detectFactoryType(contractIDs []string) (string, bool) {
 	return "", false
 }
 
+// GetNetworkPassphrase returns the network passphrase
+func (p *Processor) GetNetworkPassphrase() string {
+	return p.networkPassphrase
+}
+
+// GetFactoryContracts returns the factory contracts map
+func (p *Processor) GetFactoryContracts() map[string]string {
+	return p.factoryContracts
+}
+

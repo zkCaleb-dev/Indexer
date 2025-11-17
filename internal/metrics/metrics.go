@@ -99,3 +99,26 @@ var (
 		[]string{"service"},
 	)
 )
+
+// Pipeline metrics - Track parallel processing pipeline
+var (
+	PipelineMode = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "indexer_pipeline_mode",
+		Help: "Pipeline mode: 0=sequential, 1=parallel",
+	})
+
+	PipelineWorkerCount = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "indexer_pipeline_worker_count",
+		Help: "Number of active pipeline workers",
+	})
+
+	PipelineQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "indexer_pipeline_queue_depth",
+		Help: "Number of ledgers waiting to be checkpointed in order",
+	})
+
+	PipelineLag = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "indexer_pipeline_lag",
+		Help: "Number of ledgers behind the latest ledger (current lag)",
+	})
+)

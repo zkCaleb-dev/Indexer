@@ -50,6 +50,13 @@ type Config struct {
 
 	// API Server configuration
 	APIServerPort int // HTTP API server port for metrics and REST endpoints
+
+	// Parallel Processing Pipeline configuration
+	EnableParallelProcessing bool   // Enable/disable parallel pipeline
+	PipelineWorkerCount      int    // Number of parallel workers (0 = auto-detect from CPU cores)
+	PipelineBufferSize       int    // Buffer size between pipeline stages
+	AutoEnableLagThreshold   uint32 // Enable pipeline if lag > threshold (0 = manual control)
+	AutoDisableLagThreshold  uint32 // Disable pipeline if lag < threshold
 }
 
 // Load returns the configuration for the indexer
@@ -98,6 +105,13 @@ func Load() *Config {
 
 		// API Server configuration
 		APIServerPort: getEnvAsInt("API_SERVER_PORT", 2112), // Port for metrics and REST API
+
+		// Parallel Processing Pipeline configuration
+		EnableParallelProcessing: getEnvAsBool("ENABLE_PARALLEL_PROCESSING", true),      // Default: enabled
+		PipelineWorkerCount:      getEnvAsInt("PIPELINE_WORKER_COUNT", 0),               // 0 = auto (75% of CPU cores)
+		PipelineBufferSize:       getEnvAsInt("PIPELINE_BUFFER_SIZE", 50),               // Buffer between stages
+		AutoEnableLagThreshold:   getEnvAsUint32("AUTO_ENABLE_LAG_THRESHOLD", 100),      // Enable if lag > 100
+		AutoDisableLagThreshold:  getEnvAsUint32("AUTO_DISABLE_LAG_THRESHOLD", 10),      // Disable if lag < 10
 	}
 }
 
@@ -142,6 +156,20 @@ func getEnvAsInt(key string, defaultVal int) int {
 	}
 
 	val, err := strconv.Atoi(valStr)
+	if err != nil {
+		return defaultVal
+	}
+	return val
+}
+
+// Helper function: get bool env var with default
+func getEnvAsBool(key string, defaultVal bool) bool {
+	valStr := os.Getenv(key)
+	if valStr == "" {
+		return defaultVal
+	}
+
+	val, err := strconv.ParseBool(valStr)
 	if err != nil {
 		return defaultVal
 	}

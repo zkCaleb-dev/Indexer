@@ -16,6 +16,7 @@ import (
 	"indexer/internal/ledger/retry"
 	"indexer/internal/metrics"
 	"indexer/internal/orchestrator"
+	"indexer/internal/pipeline"
 	"indexer/internal/services"
 	"indexer/internal/storage"
 
@@ -92,6 +93,9 @@ func main() {
 		"idle_timeout_sec", cfg.HTTPIdleConnTimeout,
 	)
 
+	// 4.5. Create RPC client (shared for health checks and pipeline)
+	rpcClient := rpcclient.NewClient(cfg.RPCServerURL, httpClient)
+
 	// 5. Check for saved progress (checkpoint/resume)
 	savedLedger, exists, err := repository.GetProgress(ctx)
 	if err != nil {
@@ -108,7 +112,6 @@ func main() {
 		)
 	} else if startLedger == 0 {
 		// No checkpoint and no config - get latest from RPC
-		rpcClient := rpcclient.NewClient(cfg.RPCServerURL, httpClient)
 		health, err := rpcClient.GetHealth(ctx)
 		if err != nil {
 			log.Fatalf("❌ Failed to get health from RPC: %v", err)
@@ -168,12 +171,50 @@ func main() {
 		"services", len(orch.Services()),
 	)
 
+	// Load existing deployed contracts into tracking
+	// This is critical: without this, contracts deployed before restart won't have their events tracked
+	slog.Info("Loading existing contracts into tracking...")
+	contractIDs, err := repository.GetTrackedContractIDs(ctx)
+	if err != nil {
+		log.Fatalf("❌ Failed to load tracked contracts: %v", err)
+	}
+
+	for _, contractID := range contractIDs {
+		activityService.AddTrackedContract(contractID)
+	}
+
+	slog.Info("✅ Existing contracts loaded into tracking",
+		"count", len(contractIDs),
+	)
+	metrics.TrackedContracts.Set(float64(len(contractIDs)))
+
 	// 7. Load retry configuration and create retry strategy
 	retryConfig := retry.LoadConfig()
 	retryStrategy := retry.NewStrategy(retryConfig)
 
-	// 8. Create streamer with retry strategy and checkpointing
-	streamer := ledger.NewStreamer(backend, processor, retryStrategy, repository, cfg.CheckpointInterval)
+	// 7.5. Create parallel processing pipeline (if enabled)
+	var pipelineInstance *pipeline.Pipeline
+	if cfg.EnableParallelProcessing {
+		pipelineConfig := pipeline.PipelineConfig{
+			Enabled:                 cfg.EnableParallelProcessing,
+			WorkerCount:             cfg.PipelineWorkerCount,
+			ResultsBufferSize:       cfg.PipelineBufferSize,
+			AutoEnableLagThreshold:  cfg.AutoEnableLagThreshold,
+			AutoDisableLagThreshold: cfg.AutoDisableLagThreshold,
+		}
+		pipelineInstance = pipeline.NewPipeline(pipelineConfig, repository, rpcClient)
+		slog.Info("Parallel processing pipeline configured",
+			"enabled", true,
+			"worker_count", cfg.PipelineWorkerCount,
+			"auto_enable_lag", cfg.AutoEnableLagThreshold,
+			"auto_disable_lag", cfg.AutoDisableLagThreshold,
+		)
+	} else {
+		slog.Info("Parallel processing pipeline disabled")
+	}
+
+	// 8. Create streamer with retry strategy, checkpointing, and optional pipeline
+	streamer := ledger.NewStreamer(backend, processor, retryStrategy, repository, cfg.CheckpointInterval, pipelineInstance, rpcClient)
 	slog.Info("Streamer configured",
 		"checkpoint_interval", cfg.CheckpointInterval,
 		"checkpoint_enabled", cfg.CheckpointInterval > 0,
