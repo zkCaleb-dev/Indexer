@@ -118,6 +118,18 @@ func (r *PostgresRepository) GetDeployedContract(ctx context.Context, contractID
 	return &contract, nil
 }
 
+// ContractExists checks if a contract exists in the database
+// This is used as a fallback for tracking to ensure robustness
+func (r *PostgresRepository) ContractExists(ctx context.Context, contractID string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM deployed_contracts WHERE contract_id = $1)`
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, contractID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check contract existence: %w", err)
+	}
+	return exists, nil
+}
+
 // ListDeployedContracts lists all deployed contracts with pagination
 func (r *PostgresRepository) ListDeployedContracts(ctx context.Context, limit, offset int) ([]*models.DeployedContract, error) {
 	query := `

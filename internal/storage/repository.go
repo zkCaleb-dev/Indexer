@@ -12,6 +12,7 @@ type Repository interface {
 	GetDeployedContract(ctx context.Context, contractID string) (*models.DeployedContract, error)
 	ListDeployedContracts(ctx context.Context, limit, offset int) ([]*models.DeployedContract, error)
 	GetTrackedContractIDs(ctx context.Context) ([]string, error)
+	ContractExists(ctx context.Context, contractID string) (bool, error)
 	CountDeployedContracts(ctx context.Context, contractType *string) (int, error)
 	ListDeployedContractsFiltered(ctx context.Context, contractType *string, deployer *string, limit, offset int) ([]*models.DeployedContract, error)
 

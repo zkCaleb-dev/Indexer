@@ -126,26 +126,40 @@ func BuildMilestoneResponses(
 		}
 
 		// Analyze events for this milestone
+		// TrustlessWork events contain full contract state with all milestones
 		for _, event := range events {
-			milestoneIndex := getMilestoneIndexFromEvent(event)
-			if milestoneIndex != i {
+			// Extract milestone at index i from this event
+			eventMilestone, found := extractMilestoneFromEvent(event, i)
+			if !found {
 				continue
 			}
 
-			switch event.EventType {
-			case "tw_ms_approve":
+			// Extract flags from the milestone
+			flags, ok := eventMilestone["flags"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Update approved status (only set once, on first occurrence)
+			if approved, ok := flags["approved"].(bool); ok && approved && !response.Approved {
 				response.Approved = true
 				response.ApprovedAt = &event.Timestamp
+			}
 
-			case "tw_release":
+			// Update released status
+			if released, ok := flags["released"].(bool); ok && released && !response.Released {
 				response.Released = true
 				response.ReleasedAt = &event.Timestamp
+			}
 
-			case "tw_dispute":
+			// Update disputed status
+			if disputed, ok := flags["disputed"].(bool); ok && disputed && !response.Disputed {
 				response.Disputed = true
 				response.DisputedAt = &event.Timestamp
+			}
 
-			case "tw_disp_resolve":
+			// Update resolved status
+			if resolved, ok := flags["resolved"].(bool); ok && resolved && !response.Resolved {
 				response.Resolved = true
 				response.ResolvedAt = &event.Timestamp
 			}
@@ -177,17 +191,23 @@ func calculateMilestoneStatus(m models.MilestoneResponse) string {
 	return "pending"
 }
 
-// getMilestoneIndexFromEvent extracts milestone index from event data
-func getMilestoneIndexFromEvent(event models.ContractEvent) int {
-	if parsed, ok := event.Data["parsed"].(map[string]interface{}); ok {
-		if idx, ok := parsed["milestone_index"].(float64); ok {
-			return int(idx)
-		}
-		if idx, ok := parsed["milestone_index"].(int); ok {
-			return idx
+// extractMilestoneFromEvent extracts a specific milestone from event data
+// TrustlessWork events contain the FULL contract state with ALL milestones
+// Structure: event.Data["parsed"][0]["milestones"][milestoneIndex]
+func extractMilestoneFromEvent(event models.ContractEvent, milestoneIndex int) (map[string]interface{}, bool) {
+	// Navigate: event.Data["parsed"][0]["milestones"][milestoneIndex]
+	if parsed, ok := event.Data["parsed"].([]interface{}); ok && len(parsed) > 0 {
+		if firstParsed, ok := parsed[0].(map[string]interface{}); ok {
+			if milestones, ok := firstParsed["milestones"].([]interface{}); ok {
+				if milestoneIndex < len(milestones) {
+					if milestone, ok := milestones[milestoneIndex].(map[string]interface{}); ok {
+						return milestone, true
+					}
+				}
+			}
 		}
 	}
-	return -1
+	return nil, false
 }
 
 // getStringValue safely extracts a string value from a map

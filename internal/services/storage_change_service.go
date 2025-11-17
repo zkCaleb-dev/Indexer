@@ -70,18 +70,47 @@ func (s *StorageChangeService) Process(ctx context.Context, tx *ProcessedTx) err
 	s.currentLedger = tx.LedgerSeq
 
 	// Check if any contract in the transaction is tracked
-	s.mu.RLock()
+	// Uses cache (memory) with fallback to DB for robustness
 	var trackedContractID string
+
 	for _, contractID := range tx.ContractIDs {
-		if s.trackedContracts[contractID] {
+		// 1. First check cache in memory (fast path)
+		s.mu.RLock()
+		inCache := s.trackedContracts[contractID]
+		s.mu.RUnlock()
+
+		if inCache {
+			trackedContractID = contractID
+			break
+		}
+
+		// 2. If not in cache, check database (fallback for robustness)
+		exists, err := s.repository.ContractExists(ctx, contractID)
+		if err != nil {
+			slog.Error("StorageChangeService: Failed to check contract existence",
+				"error", err,
+				"contract_id", contractID,
+			)
+			continue
+		}
+
+		if exists {
+			// Add to cache for future transactions (auto-healing)
+			s.mu.Lock()
+			s.trackedContracts[contractID] = true
+			s.mu.Unlock()
+
+			slog.Info("StorageChangeService: Contract found in DB, added to cache (auto-healing)",
+				"contract_id", contractID,
+			)
+
 			trackedContractID = contractID
 			break
 		}
 	}
-	s.mu.RUnlock()
 
 	if trackedContractID == "" {
-		return nil // No tracked contracts in this transaction
+		return nil // No deployed contracts in this transaction
 	}
 
 	// Extract raw changes (for compaction)
