@@ -12,6 +12,7 @@ import (
 
 	"indexer/internal/config"
 	"indexer/internal/ledger"
+	"indexer/internal/ledger/retry"
 	"indexer/internal/orchestrator"
 	"indexer/internal/services"
 	"indexer/internal/storage"
@@ -126,8 +127,12 @@ func main() {
 		"services", len(orch.Services()),
 	)
 
-	// 7. Create streamer
-	streamer := ledger.NewStreamer(backend, processor)
+	// 7. Load retry configuration and create retry strategy
+	retryConfig := retry.LoadConfig()
+	retryStrategy := retry.NewStrategy(retryConfig)
+
+	// 8. Create streamer with retry strategy
+	streamer := ledger.NewStreamer(backend, processor, retryStrategy)
 
 	// 7. Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

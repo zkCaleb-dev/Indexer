@@ -46,7 +46,7 @@ func (s *StorageChangeService) Process(ctx context.Context, tx *ProcessedTx) err
 	}
 
 	// Extract storage changes
-	changes, err := s.extractor.ExtractContractStorageChanges(tx.Tx, trackedContractID, tx.LedgerSeq)
+	changes, err := s.extractor.ExtractContractStorageChanges(tx.Tx, trackedContractID, tx.LedgerSeq, tx.LedgerCloseTime)
 	if err != nil {
 		slog.Error("StorageChangeService: Failed to extract storage changes",
 			"error", err,

@@ -50,7 +50,7 @@ func (s *EventService) Process(ctx context.Context, tx *ProcessedTx) error {
 	}
 
 	// Extract ALL events from the transaction
-	allEvents, err := s.extractor.ExtractEvents(tx.Tx, tx.LedgerSeq)
+	allEvents, err := s.extractor.ExtractEvents(tx.Tx, tx.LedgerSeq, tx.LedgerCloseTime)
 	if err != nil {
 		slog.Error("EventService: Failed to extract events",
 			"error", err,

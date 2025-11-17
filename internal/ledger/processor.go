@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"time"
 
 	"indexer/internal/extraction"
 	"indexer/internal/orchestrator"
@@ -41,14 +42,15 @@ func (p *Processor) SetOrchestrator(orch *orchestrator.Orchestrator) {
 
 // toProcessedTx converts an ingest.LedgerTransaction to *services.ProcessedTx
 // Returns a pointer to avoid copying large structs when passing to services
-func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32) *services.ProcessedTx {
+func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32, ledgerCloseTime time.Time) *services.ProcessedTx {
 	return &services.ProcessedTx{
-		Tx:          tx,
-		Hash:        tx.Hash.HexString(),
-		LedgerSeq:   ledgerSeq,
-		Success:     tx.Successful(),
-		IsSoroban:   tx.IsSorobanTx(),
-		ContractIDs: extraction.ExtractAllContractIDs(tx),
+		Tx:              tx,
+		Hash:            tx.Hash.HexString(),
+		LedgerSeq:       ledgerSeq,
+		LedgerCloseTime: ledgerCloseTime,
+		Success:         tx.Successful(),
+		IsSoroban:       tx.IsSorobanTx(),
+		ContractIDs:     extraction.ExtractAllContractIDs(tx),
 	}
 }
 
@@ -56,6 +58,7 @@ func (p *Processor) toProcessedTx(tx ingest.LedgerTransaction, ledgerSeq uint32)
 func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 	sequence := ledger.LedgerSequence()
 	txCount := ledger.CountTransactions()
+	ledgerCloseTime := ledger.ClosedAt() // Get actual ledger close timestamp
 
 	slog.Debug("Processing ledger",
 		"sequence", sequence,
@@ -131,7 +134,7 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 			)
 
 			// Process via orchestrator services
-			processedTx := p.toProcessedTx(tx, sequence)
+			processedTx := p.toProcessedTx(tx, sequence, ledgerCloseTime)
 			ctx := context.Background()
 			if err := p.orchestrator.ProcessTx(ctx, processedTx); err != nil {
 				slog.Error("Orchestrator processing failed", "error", err)
@@ -142,7 +145,7 @@ func (p *Processor) Process(ledger xdr.LedgerCloseMeta) error {
 		}
 
 		// Process all other Soroban transactions through orchestrator (for ActivityService)
-		processedTx := p.toProcessedTx(tx, sequence)
+		processedTx := p.toProcessedTx(tx, sequence, ledgerCloseTime)
 		ctx := context.Background()
 		if err := p.orchestrator.ProcessTx(ctx, processedTx); err != nil {
 			slog.Error("Orchestrator processing failed", "error", err)

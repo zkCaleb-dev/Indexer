@@ -66,7 +66,7 @@ func (s *ActivityService) Process(ctx context.Context, tx *ProcessedTx) error {
 	)
 
 	// Extract complete activity information
-	activity, err := s.extractor.ExtractContractActivity(tx.Tx, trackedContractID, tx.LedgerSeq)
+	activity, err := s.extractor.ExtractContractActivity(tx.Tx, trackedContractID, tx.LedgerSeq, tx.LedgerCloseTime)
 	if err != nil {
 		slog.Error("ActivityService: Failed to extract contract activity",
 			"error", err,

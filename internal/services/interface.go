@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"time"
 
 	"github.com/stellar/go/ingest"
 )
@@ -9,11 +10,12 @@ import (
 // ProcessedTx represents a normalized transaction ready for service processing
 type ProcessedTx struct {
 	// Transaction data
-	Tx          ingest.LedgerTransaction
-	Hash        string
-	LedgerSeq   uint32
-	Success     bool
-	IsSoroban   bool
+	Tx              ingest.LedgerTransaction
+	Hash            string
+	LedgerSeq       uint32
+	LedgerCloseTime time.Time // Actual ledger close timestamp
+	Success         bool
+	IsSoroban       bool
 
 	// Extracted data for easy filtering
 	ContractIDs []string // All contract IDs from footprint

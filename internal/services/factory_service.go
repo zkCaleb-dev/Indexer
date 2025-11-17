@@ -49,7 +49,7 @@ func (s *FactoryService) Process(ctx context.Context, tx *ProcessedTx) error {
 	}
 
 	// Extract complete deployment information
-	contract, err := s.extractor.ExtractDeployedContract(tx.Tx, s.factoryContractID, tx.LedgerSeq)
+	contract, err := s.extractor.ExtractDeployedContract(tx.Tx, s.factoryContractID, tx.LedgerSeq, tx.LedgerCloseTime)
 	if err != nil {
 		slog.Error("FactoryService: Failed to extract deployed contract",
 			"error", err,

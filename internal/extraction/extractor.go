@@ -71,6 +71,7 @@ func (e *DataExtractor) ExtractDeployedContract(
 	tx ingest.LedgerTransaction,
 	factoryContractID string,
 	ledgerSeq uint32,
+	ledgerCloseTime time.Time,
 ) (*models.DeployedContract, error) {
 
 	// Extract the new contract ID and initialization params from return value
@@ -83,13 +84,13 @@ func (e *DataExtractor) ExtractDeployedContract(
 	deployer, _ := tx.Account()
 
 	// Extract initialization events
-	events, err := e.ExtractEvents(tx, ledgerSeq)
+	events, err := e.ExtractEvents(tx, ledgerSeq, ledgerCloseTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract events: %w", err)
 	}
 
 	// Extract initial storage
-	storage, err := e.ExtractStorageChanges(tx, ledgerSeq)
+	storage, err := e.ExtractStorageChanges(tx, ledgerSeq, ledgerCloseTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract storage: %w", err)
 	}
@@ -114,7 +115,7 @@ func (e *DataExtractor) ExtractDeployedContract(
 		ContractID:        newContractID,
 		FactoryContractID: factoryContractID,
 		DeployedAtLedger:  ledgerSeq,
-		DeployedAtTime:    time.Now(), // TODO: Get actual ledger close time
+		DeployedAtTime:    ledgerCloseTime,
 		TxHash:            tx.Hash.HexString(),
 		Deployer:          deployer,
 		FeeCharged:        feeCharged,
@@ -206,7 +207,7 @@ func (e *DataExtractor) extractDeploymentDataFromReturnValue(tx ingest.LedgerTra
 }
 
 // ExtractEvents extracts all contract events from a transaction
-func (e *DataExtractor) ExtractEvents(tx ingest.LedgerTransaction, ledgerSeq uint32) ([]models.ContractEvent, error) {
+func (e *DataExtractor) ExtractEvents(tx ingest.LedgerTransaction, ledgerSeq uint32, ledgerCloseTime time.Time) ([]models.ContractEvent, error) {
 	events, err := tx.GetContractEvents()
 	if err != nil {
 		return nil, err
@@ -214,7 +215,7 @@ func (e *DataExtractor) ExtractEvents(tx ingest.LedgerTransaction, ledgerSeq uin
 
 	var result []models.ContractEvent
 	for i, event := range events {
-		parsedEvent, err := e.parseContractEvent(event, tx.Hash.HexString(), ledgerSeq, i)
+		parsedEvent, err := e.parseContractEvent(event, tx.Hash.HexString(), ledgerSeq, i, ledgerCloseTime)
 		if err != nil {
 			// Log error but continue with other events
 			continue
@@ -231,6 +232,7 @@ func (e *DataExtractor) parseContractEvent(
 	txHash string,
 	ledgerSeq uint32,
 	eventIndex int,
+	ledgerCloseTime time.Time,
 ) (models.ContractEvent, error) {
 
 	// Extract contract ID
@@ -282,13 +284,13 @@ func (e *DataExtractor) parseContractEvent(
 		RawData:                  rawData,
 		TxHash:                   txHash,
 		LedgerSeq:                ledgerSeq,
-		Timestamp:                time.Now(), // TODO: Get actual ledger close time
+		Timestamp:                ledgerCloseTime,
 		InSuccessfulContractCall: true,
 	}, nil
 }
 
 // ExtractStorageChanges extracts all storage changes from a transaction
-func (e *DataExtractor) ExtractStorageChanges(tx ingest.LedgerTransaction, ledgerSeq uint32) ([]models.StorageEntry, error) {
+func (e *DataExtractor) ExtractStorageChanges(tx ingest.LedgerTransaction, ledgerSeq uint32, ledgerCloseTime time.Time) ([]models.StorageEntry, error) {
 	changes, err := tx.GetChanges()
 	if err != nil {
 		return nil, err
@@ -544,14 +546,15 @@ func (e *DataExtractor) ExtractContractActivity(
 	tx ingest.LedgerTransaction,
 	contractID string,
 	ledgerSeq uint32,
+	ledgerCloseTime time.Time,
 ) (*models.ContractActivity, error) {
 
-	events, err := e.ExtractEvents(tx, ledgerSeq)
+	events, err := e.ExtractEvents(tx, ledgerSeq, ledgerCloseTime)
 	if err != nil {
 		return nil, err
 	}
 
-	storage, err := e.ExtractStorageChanges(tx, ledgerSeq)
+	storage, err := e.ExtractStorageChanges(tx, ledgerSeq, ledgerCloseTime)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +576,7 @@ func (e *DataExtractor) ExtractContractActivity(
 		ActivityType:    string(models.ActivityInvocation),
 		TxHash:          tx.Hash.HexString(),
 		LedgerSeq:       ledgerSeq,
-		Timestamp:       time.Now(), // TODO: Get actual ledger close time
+		Timestamp:       ledgerCloseTime,
 		Invoker:         invoker,
 		Success:         tx.Successful(),
 		ReturnValue:     returnValue,
@@ -593,7 +596,7 @@ func (e *DataExtractor) ExtractContractActivity(
 }
 
 // ExtractContractStorageChanges extracts all storage changes for a specific contract from a transaction
-func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32) ([]*models.StorageChange, error) {
+func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransaction, contractID string, ledgerSeq uint32, ledgerCloseTime time.Time) ([]*models.StorageChange, error) {
 	var changes []*models.StorageChange
 
 	// Get all changes from the transaction
@@ -632,7 +635,7 @@ func (e *DataExtractor) ExtractContractStorageChanges(tx ingest.LedgerTransactio
 			ContractID: contractID,
 			TxHash:     txHash,
 			LedgerSeq:  ledgerSeq,
-			Timestamp:  time.Now(), // TODO: Use ledger close time
+			Timestamp:  ledgerCloseTime,
 			Durability: contractData.Durability.String(),
 		}
 

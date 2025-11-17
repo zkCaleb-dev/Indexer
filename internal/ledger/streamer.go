@@ -5,20 +5,26 @@ import (
 	"log/slog"
 	"time"
 
+	"indexer/internal/ledger/retry"
+
 	"github.com/stellar/go/ingest/ledgerbackend"
+	"github.com/stellar/go/xdr"
 )
 
 // Streamer continuously polls ledgers from the backend and processes them
 type Streamer struct {
-	backend   ledgerbackend.LedgerBackend
-	processor *Processor
+	backend       ledgerbackend.LedgerBackend
+	processor     *Processor
+	retryStrategy retry.Strategy
 }
 
 // NewStreamer creates a new Streamer instance
-func NewStreamer(backend ledgerbackend.LedgerBackend, processor *Processor) *Streamer {
+func NewStreamer(backend ledgerbackend.LedgerBackend, processor *Processor, retryStrategy retry.Strategy) *Streamer {
+	slog.Info("Streamer created with retry strategy", "strategy", retryStrategy.Name())
 	return &Streamer{
-		backend:   backend,
-		processor: processor,
+		backend:       backend,
+		processor:     processor,
+		retryStrategy: retryStrategy,
 	}
 }
 
@@ -48,19 +54,34 @@ func (s *Streamer) Start(ctx context.Context, startLedger uint32) error {
 		default:
 		}
 
-		// Get the ledger
 		startTime := time.Now()
-		ledger, err := s.backend.GetLedger(ctx, currentSeq)
+		var ledger xdr.LedgerCloseMeta
+		var fetchDuration time.Duration
+
+		// Get the ledger with retry strategy
+		err := s.retryStrategy.Execute(ctx, func() error {
+			fetchStart := time.Now()
+			l, err := s.backend.GetLedger(ctx, currentSeq)
+			if err != nil {
+				return err
+			}
+			ledger = l
+			fetchDuration = time.Since(fetchStart)
+			return nil
+		})
+
 		if err != nil {
-			slog.Error("Failed to get ledger", "sequence", currentSeq, "error", err)
+			slog.Error("Failed to get ledger after retry", "sequence", currentSeq, "error", err)
 			return err
 		}
 
-		fetchDuration := time.Since(startTime)
+		// Process the ledger with retry strategy
+		err = s.retryStrategy.Execute(ctx, func() error {
+			return s.processor.Process(ledger)
+		})
 
-		// Process the ledger
-		if err := s.processor.Process(ledger); err != nil {
-			slog.Error("Failed to process ledger", "sequence", currentSeq, "error", err)
+		if err != nil {
+			slog.Error("Failed to process ledger after retry", "sequence", currentSeq, "error", err)
 			return err
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"indexer/internal/models"
 
@@ -483,8 +484,14 @@ func (r *PostgresRepository) GetLatestStorageState(ctx context.Context, contract
 
 // SaveContractActivity saves a contract activity
 func (r *PostgresRepository) SaveContractActivity(ctx context.Context, activity *models.ContractActivity) error {
-	parametersJSON, _ := json.Marshal(activity.Parameters)
-	returnValueJSON, _ := json.Marshal(activity.ReturnValue)
+	parametersJSON, err := json.Marshal(activity.Parameters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal parameters: %w", err)
+	}
+	returnValueJSON, err2 := json.Marshal(activity.ReturnValue)
+	if err2 != nil {
+		return fmt.Errorf("failed to marshal return value: %w", err2)
+	}
 
 	query := `
 		INSERT INTO contract_activities (
@@ -495,7 +502,7 @@ func (r *PostgresRepository) SaveContractActivity(ctx context.Context, activity 
 		ON CONFLICT (activity_id) DO NOTHING
 	`
 
-	_, err := r.pool.Exec(ctx, query,
+	_, err = r.pool.Exec(ctx, query,
 		activity.ActivityID,
 		activity.ContractID,
 		activity.ActivityType,
@@ -567,8 +574,12 @@ func (r *PostgresRepository) ListContractActivities(ctx context.Context, contrac
 			return nil, fmt.Errorf("failed to scan activity: %w", err)
 		}
 
-		json.Unmarshal(parametersJSON, &activity.Parameters)
-		json.Unmarshal(returnValueJSON, &activity.ReturnValue)
+		if err := json.Unmarshal(parametersJSON, &activity.Parameters); err != nil {
+			slog.Warn("Failed to unmarshal parameters", "activity_id", activity.ActivityID, "error", err)
+		}
+		if err := json.Unmarshal(returnValueJSON, &activity.ReturnValue); err != nil {
+			slog.Warn("Failed to unmarshal return value", "activity_id", activity.ActivityID, "error", err)
+		}
 
 		activities = append(activities, &activity)
 	}
@@ -621,9 +632,18 @@ func (r *PostgresRepository) GetLastProcessedLedger(ctx context.Context) (uint32
 
 // SaveStorageChange saves a single storage change
 func (r *PostgresRepository) SaveStorageChange(ctx context.Context, change *models.StorageChange) error {
-	keyJSON, _ := json.Marshal(change.StorageKey)
-	valueJSON, _ := json.Marshal(change.StorageValue)
-	prevJSON, _ := json.Marshal(change.PreviousValue)
+	keyJSON, err := json.Marshal(change.StorageKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal storage key: %w", err)
+	}
+	valueJSON, err2 := json.Marshal(change.StorageValue)
+	if err2 != nil {
+		return fmt.Errorf("failed to marshal storage value: %w", err2)
+	}
+	prevJSON, err3 := json.Marshal(change.PreviousValue)
+	if err3 != nil {
+		return fmt.Errorf("failed to marshal previous value: %w", err3)
+	}
 
 	query := `
 		INSERT INTO storage_changes (
@@ -633,7 +653,7 @@ func (r *PostgresRepository) SaveStorageChange(ctx context.Context, change *mode
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
-	_, err := r.pool.Exec(ctx, query,
+	_, err = r.pool.Exec(ctx, query,
 		change.ContractID,
 		change.ChangeType,
 		keyJSON,
@@ -677,11 +697,20 @@ func (r *PostgresRepository) SaveStorageChanges(ctx context.Context, changes []*
 	`
 
 	for _, change := range changes {
-		keyJSON, _ := json.Marshal(change.StorageKey)
-		valueJSON, _ := json.Marshal(change.StorageValue)
-		prevJSON, _ := json.Marshal(change.PreviousValue)
+		keyJSON, err := json.Marshal(change.StorageKey)
+		if err != nil {
+			return fmt.Errorf("failed to marshal storage key: %w", err)
+		}
+		valueJSON, err := json.Marshal(change.StorageValue)
+		if err != nil {
+			return fmt.Errorf("failed to marshal storage value: %w", err)
+		}
+		prevJSON, err := json.Marshal(change.PreviousValue)
+		if err != nil {
+			return fmt.Errorf("failed to marshal previous value: %w", err)
+		}
 
-		_, err := tx.Exec(ctx, query,
+		_, err = tx.Exec(ctx, query,
 			change.ContractID,
 			change.ChangeType,
 			keyJSON,
