@@ -865,4 +865,4 @@ WHERE contract_id = 'CCXY123...';
 
 **End of System Design Document**
 
-*This document represents the current state of the Stellar Blockchain Indexer architecture. For implementation details, refer to the codebase in `/home/aaj/work/trustless/Indexer`.*
+*This document represents the current state of the Stellar Blockchain Indexer architecture. For implementation details, refer to the codebase.*
