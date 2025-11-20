@@ -213,7 +213,7 @@ flowchart LR
 
     subgraph "Ledger Flush"
         FLUSH{Ledger<br/>Changed?}
-        FLUSH_ACTION[FlushLedger()<br/>Batch Commit]
+        FLUSH_ACTION["FlushLedger()<br/>Batch Commit"]
     end
 
     TX --> ORCH
@@ -573,7 +573,7 @@ LOG_LEVEL=info
 ### Retry Strategy (`internal/ledger/retry/`)
 
 **Exponential Backoff Configuration:**
-```go
+```plain text
 InitialDelay:  1s
 MaxDelay:      30s
 MaxRetries:    10
@@ -584,7 +584,7 @@ Multiplier:    2.0
 ```mermaid
 graph LR
     A[Attempt] -->|Failure| B{Retry < Max?}
-    B -->|Yes| C[Wait: delay × 2^attempt]
+    B -->|Yes| C["Wait: delay × 2^attempt"]
     C --> A
     B -->|No| D[Fatal Error]
     A -->|Success| E[Continue]
