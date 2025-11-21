@@ -104,7 +104,8 @@ func Load() *Config {
 		CheckpointInterval: getEnvAsUint32("CHECKPOINT_INTERVAL", 100), // Save progress every 100 ledgers
 
 		// API Server configuration
-		APIServerPort: getEnvAsInt("API_SERVER_PORT", 2112), // Port for metrics and REST API
+		// Railway uses PORT env var, fallback to API_SERVER_PORT, then default 2112
+		APIServerPort: getEnvAsInt("PORT", getEnvAsInt("API_SERVER_PORT", 2112)), // Port for metrics and REST API
 
 		// Parallel Processing Pipeline configuration
 		EnableParallelProcessing: getEnvAsBool("ENABLE_PARALLEL_PROCESSING", true),      // Default: enabled
