@@ -9,3 +9,4 @@ indexer
 
 # IDE's
 .vscode/*
+.idea
