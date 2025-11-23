@@ -7,14 +7,14 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
-// Processor define la interfaz para procesar ledgers y transacciones
+// Processor defines the interface for processing ledgers and transactions
 type Processor interface {
 	Name() string
 	ProcessLedger(ctx context.Context, ledger xdr.LedgerCloseMeta) error
 	ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) error
 }
 
-// CheckpointStore define la interfaz para gestionar checkpoints
+// CheckpointStore defines the interface for managing ledger sequence checkpoints
 type CheckpointStore interface {
 	Save(ctx context.Context, ledgerSeq uint32) error
 	Load(ctx context.Context) (uint32, error)

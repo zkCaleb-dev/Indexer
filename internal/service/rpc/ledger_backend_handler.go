@@ -7,11 +7,13 @@ import (
 	"github.com/stellar/go/ingest/ledgerbackend"
 )
 
+// LedgerBackendHandlerService defines the interface for managing ledger backend lifecycle and range preparation
 type LedgerBackendHandlerService interface {
 	PrepareRange(ctx context.Context, start, end *uint32) error
 	BackendHandlerService[ledgerbackend.LedgerBackend]
 }
 
+// LedgerBackend implements the RPC-based ledger backend handler
 type LedgerBackend struct {
 	ClientConfig rpc_backend.ClientConfig
 	backend      ledgerbackend.LedgerBackend
@@ -19,9 +21,10 @@ type LedgerBackend struct {
 	isAvailable  bool
 }
 
+// Start initializes the ledger backend by building and configuring the RPC client
 func (l *LedgerBackend) Start() error {
 
-	// Let's Build the new Backend Instance
+	// Build the new backend instance
 	backendBuilder := rpc_backend.LedgerBuilder{
 		ClientConfig: l.ClientConfig,
 	}
@@ -41,6 +44,7 @@ func (l *LedgerBackend) Start() error {
 	return nil
 }
 
+// Close gracefully shuts down the ledger backend
 func (l *LedgerBackend) Close() error {
 	l.isAvailable = false
 	if l.backend != nil {
@@ -49,22 +53,25 @@ func (l *LedgerBackend) Close() error {
 	return nil
 }
 
+// IsAvailable returns whether the backend is ready for use
 func (l *LedgerBackend) IsAvailable() bool {
 	return l.isAvailable
 }
 
+// HandleBackend returns the underlying ledger backend instance
 func (l *LedgerBackend) HandleBackend() (ledgerbackend.LedgerBackend, error) {
 	return l.backend, l.buildErr
 }
 
+// PrepareRange configures the backend to stream ledgers within the specified range
 func (l *LedgerBackend) PrepareRange(ctx context.Context, start, end *uint32) error {
 	var ledgerRange ledgerbackend.Range
 
 	if end == nil {
-		// UnboundedRange for continuous streaming
+		// Unbounded range for continuous streaming
 		ledgerRange = ledgerbackend.UnboundedRange(*start)
 	} else {
-		// BoundedRange for specific range
+		// Bounded range for a specific ledger range
 		ledgerRange = ledgerbackend.BoundedRange(*start, *end)
 	}
 

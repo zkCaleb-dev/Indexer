@@ -7,21 +7,22 @@ import (
 	"github.com/stellar/go/ingest/ledgerbackend"
 )
 
+// LedgerBuilder is responsible for constructing RPC ledger backend instances
 type LedgerBuilder struct {
 	ClientConfig ClientConfig
 }
 
-// Build will create a new ledgerbackend.RPCLedgerBackend rpc_backend from ClientConfig
+// Build creates a new RPC ledger backend instance from the client configuration
 func (lw *LedgerBuilder) Build() (*ledgerbackend.RPCLedgerBackend, error) {
 	return lw.newBackendFromOptions()
 }
 
-// newBackendOptions will create a new rpc_backend options object from the client config
+// newBackendOptions creates RPC backend options from the client configuration
 func (lw *LedgerBuilder) newBackendOptions() (*ledgerbackend.RPCLedgerBackendOptions, error) {
 
-	// Check if Endpoint is empty or nil
+	// Validate that endpoint is provided
 	if lw.ClientConfig.Endpoint == "" {
-		return nil, fmt.Errorf("ClientConfig.Endpoint valuie is empty, please provide a valid endpoint")
+		return nil, fmt.Errorf("ClientConfig.Endpoint value is empty, please provide a valid endpoint")
 	}
 
 	return &ledgerbackend.RPCLedgerBackendOptions{
@@ -31,6 +32,7 @@ func (lw *LedgerBuilder) newBackendOptions() (*ledgerbackend.RPCLedgerBackendOpt
 	}, nil
 }
 
+// newBackendFromOptions constructs the RPC ledger backend using the configured options
 func (lw *LedgerBuilder) newBackendFromOptions() (*ledgerbackend.RPCLedgerBackend, error) {
 	backendOptions, err := lw.newBackendOptions()
 

@@ -9,99 +9,110 @@ import (
 	"syscall"
 
 	"indexer/internal/indexer/processors"
-	"indexer/internal/service"
+	"indexer/internal/integration/rpc_backend"
+	"indexer/internal/service/rpc"
 )
 
-// Config contiene la configuración del indexador
+// Config holds the indexer configuration including RPC endpoint, starting ledger, and network passphrase
 type Config struct {
 	RPCEndpoint string
 	StartLedger uint32
 	NetworkPass string
 }
 
-// Indexer es el coordinador principal
+// Indexer is the main coordinator that manages the ledger backend, ingest service, and processors
 type Indexer struct {
-	config        Config
-	rpcService    *service.RPCService
-	ingestService *ingest.OrchestratorService
-	processors    []service.Processor
+	config         Config
+	ledgerBackend  *rpc.LedgerBackend
+	ingestService  *ingest.OrchestratorService
+	processors     []ingest.Processor
 }
 
-// New crea una nueva instancia del indexador
+// New creates a new indexer instance with the given configuration
 func New(config Config) (*Indexer, error) {
-	// Crear servicio RPC
-	rpcConfig := service.RPCConfig{
-		Endpoint:    config.RPCEndpoint,
-		NetworkPass: config.NetworkPass,
-		BufferSize:  25,
+	// Create RPC client configuration
+	clientConfig := rpc_backend.ClientConfig{
+		Endpoint:          config.RPCEndpoint,
+		BufferSize:        25,
+		NetworkPassphrase: config.NetworkPass,
+		TimeoutConfig: rpc_backend.ClientTimeoutConfig{
+			Timeout:  30,
+			Retries:  3,
+			Interval: 5,
+		},
 	}
 
-	rpcService, err := service.NewRPCService(rpcConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error creando servicio RPC: %w", err)
+	// Create ledger backend
+	ledgerBackend := &rpc.LedgerBackend{
+		ClientConfig: clientConfig,
 	}
 
-	// Crear procesadores
+	// Start the backend
+	if err := ledgerBackend.Start(); err != nil {
+		return nil, fmt.Errorf("error starting ledger backend: %w", err)
+	}
+
+	// Create processors
 	usdcProcessor := processors.NewUSDCTransferProcessor()
-	processorList := []service.Processor{usdcProcessor}
+	processorList := []ingest.Processor{usdcProcessor}
 
-	// Crear servicio de ingesta
-	ingestService := ingest.NewIngestService(rpcService, processorList)
+	// Create ingest service
+	ingestService := ingest.NewIngestService(ledgerBackend, processorList)
 
-	// Iniciar consumidor de eventos en background
+	// Start background event consumer
 	go consumeEvents(usdcProcessor)
 
 	return &Indexer{
-		config:        config,
-		rpcService:    rpcService,
-		ingestService: ingestService,
-		processors:    processorList,
+		config:         config,
+		ledgerBackend:  ledgerBackend,
+		ingestService:  ingestService,
+		processors:     processorList,
 	}, nil
 }
 
-// Start inicia el indexador
+// Start initializes and runs the indexer, blocking until a termination signal is received
 func (idx *Indexer) Start() error {
-	log.Printf("🚀 Iniciando indexador con RPC: %s", idx.config.RPCEndpoint)
+	log.Printf("🚀 Starting indexer with RPC: %s", idx.config.RPCEndpoint)
 
-	// Iniciar ingesta
+	// Start ingestion
 	if err := idx.ingestService.Start(idx.config.StartLedger); err != nil {
-		return fmt.Errorf("error iniciando ingesta: %w", err)
+		return fmt.Errorf("error starting ingest: %w", err)
 	}
 
-	// Configurar manejo de señales
+	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Esperar señal de terminación
+	// Wait for termination signal
 	sig := <-sigChan
-	log.Printf("📡 Señal recibida: %v", sig)
+	log.Printf("📡 Signal received: %v", sig)
 
-	// Detener servicios
+	// Stop services
 	idx.Stop()
 
 	return nil
 }
 
-// Stop detiene el indexador
+// Stop gracefully shuts down the indexer by stopping the ingest service and closing the ledger backend
 func (idx *Indexer) Stop() {
-	log.Println("🛑 Deteniendo indexador...")
+	log.Println("🛑 Stopping indexer...")
 
-	// Detener ingesta
+	// Stop ingestion
 	idx.ingestService.Stop()
 
-	// Cerrar RPC
-	if err := idx.rpcService.Close(); err != nil {
-		log.Printf("Error cerrando RPC: %v", err)
+	// Close ledger backend
+	if err := idx.ledgerBackend.Close(); err != nil {
+		log.Printf("Error closing ledger backend: %v", err)
 	}
 
-	log.Println("✅ Indexador detenido")
+	log.Println("✅ Indexer stopped")
 }
 
-// consumeEvents consume eventos del buffer del procesador
+// consumeEvents continuously processes events from the processor's buffer channel
 func consumeEvents(processor *processors.USDCTransferProcessor) {
 	for event := range processor.GetBuffer() {
-		// Por ahora solo loguear, después persistir
-		log.Printf("📊 Evento USDC procesado: %+v", event)
-		// TODO: Aquí iría la lógica de persistencia a MongoDB
+		// Currently just logging, will persist later
+		log.Printf("📊 USDC event processed: %+v", event)
+		// TODO: Add persistence logic to MongoDB here
 	}
 }
