@@ -1,33 +1,20 @@
-package services
+package ingest
 
 import (
 	"context"
 	"fmt"
+	"indexer/internal/service"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/xdr"
 )
 
-// Processor define la interfaz para procesar ledgers y transacciones
-type Processor interface {
-	Name() string
-	ProcessLedger(ctx context.Context, ledger xdr.LedgerCloseMeta) error
-	ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) error
-}
-
-// CheckpointStore define la interfaz para gestionar checkpoints
-type CheckpointStore interface {
-	Save(ctx context.Context, ledgerSeq uint32) error
-	Load(ctx context.Context) (uint32, error)
-}
-
-// IngestService coordina la ingesta de ledgers
-type IngestService struct {
-	rpcService    *RPCService
+// OrchestratorService coordina la ingesta de ledgers
+type OrchestratorService struct {
+	rpcService    *service.RPCService
 	processors    []Processor
 	checkpointMgr CheckpointStore
 
@@ -38,10 +25,10 @@ type IngestService struct {
 }
 
 // NewIngestService crea un nuevo servicio de ingesta
-func NewIngestService(rpc *RPCService, processors []Processor) *IngestService {
+func NewIngestService(rpc *service.RPCService, processors []Processor) *OrchestratorService {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &IngestService{
+	return &OrchestratorService{
 		rpcService: rpc,
 		processors: processors,
 		ctx:        ctx,
@@ -50,7 +37,7 @@ func NewIngestService(rpc *RPCService, processors []Processor) *IngestService {
 }
 
 // Start inicia el proceso de ingesta
-func (s *IngestService) Start(startLedger uint32) error {
+func (s *OrchestratorService) Start(startLedger uint32) error {
 	log.Printf("🚀 Iniciando ingesta desde ledger %d", startLedger)
 
 	// Preparar rango unbounded
@@ -65,7 +52,7 @@ func (s *IngestService) Start(startLedger uint32) error {
 }
 
 // ingestLoop es el bucle principal de ingesta
-func (s *IngestService) ingestLoop(startLedger uint32) {
+func (s *OrchestratorService) ingestLoop(startLedger uint32) {
 	defer s.wg.Done()
 
 	currentLedger := startLedger
@@ -107,7 +94,7 @@ func (s *IngestService) ingestLoop(startLedger uint32) {
 }
 
 // processLedger procesa un ledger individual
-func (s *IngestService) processLedger(sequence uint32) error {
+func (s *OrchestratorService) processLedger(sequence uint32) error {
 	// Obtener ledger del RPC
 	ledgerMeta, err := s.rpcService.GetLedger(s.ctx, sequence)
 	if err != nil {
@@ -157,7 +144,7 @@ func (s *IngestService) processLedger(sequence uint32) error {
 }
 
 // Stop detiene el servicio de ingesta
-func (s *IngestService) Stop() {
+func (s *OrchestratorService) Stop() {
 	log.Println("🛑 Solicitando detención de ingesta...")
 	s.cancel()
 	s.wg.Wait()
