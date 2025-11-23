@@ -7,17 +7,17 @@ import (
 	"github.com/stellar/go/ingest/ledgerbackend"
 )
 
-type LedgerWrapper struct {
+type LedgerBuilder struct {
 	ClientConfig ClientConfig
 }
 
-// Retrieve will create a new ledgerbackend.RPCLedgerBackend rpc_backend from ClientConfig
-func (lw *LedgerWrapper) Retrieve() (*ledgerbackend.RPCLedgerBackend, error) {
+// Build will create a new ledgerbackend.RPCLedgerBackend rpc_backend from ClientConfig
+func (lw *LedgerBuilder) Build() (*ledgerbackend.RPCLedgerBackend, error) {
 	return lw.newBackendFromOptions()
 }
 
 // newBackendOptions will create a new rpc_backend options object from the client config
-func (lw *LedgerWrapper) newBackendOptions() (*ledgerbackend.RPCLedgerBackendOptions, error) {
+func (lw *LedgerBuilder) newBackendOptions() (*ledgerbackend.RPCLedgerBackendOptions, error) {
 
 	// Check if Endpoint is empty or nil
 	if lw.ClientConfig.Endpoint == "" {
@@ -31,7 +31,7 @@ func (lw *LedgerWrapper) newBackendOptions() (*ledgerbackend.RPCLedgerBackendOpt
 	}, nil
 }
 
-func (lw *LedgerWrapper) newBackendFromOptions() (*ledgerbackend.RPCLedgerBackend, error) {
+func (lw *LedgerBuilder) newBackendFromOptions() (*ledgerbackend.RPCLedgerBackend, error) {
 	backendOptions, err := lw.newBackendOptions()
 
 	if err != nil {

@@ -3,7 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
-	"indexer/internal/service"
+	"indexer/internal/service/rpc"
 	"log"
 	"sync"
 	"time"
@@ -14,7 +14,7 @@ import (
 
 // OrchestratorService coordina la ingesta de ledgers
 type OrchestratorService struct {
-	rpcService    *service.RPCService
+	ledgerBackend rpc.LedgerBackendHandlerService
 	processors    []Processor
 	checkpointMgr CheckpointStore
 
@@ -25,14 +25,14 @@ type OrchestratorService struct {
 }
 
 // NewIngestService crea un nuevo servicio de ingesta
-func NewIngestService(rpc *service.RPCService, processors []Processor) *OrchestratorService {
+func NewIngestService(ledgerBackend rpc.LedgerBackendHandlerService, processors []Processor) *OrchestratorService {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &OrchestratorService{
-		rpcService: rpc,
-		processors: processors,
-		ctx:        ctx,
-		cancel:     cancel,
+		ledgerBackend: ledgerBackend,
+		processors:    processors,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -41,7 +41,7 @@ func (s *OrchestratorService) Start(startLedger uint32) error {
 	log.Printf("🚀 Iniciando ingesta desde ledger %d", startLedger)
 
 	// Preparar rango unbounded
-	if err := s.rpcService.PrepareRange(s.ctx, &startLedger, nil); err != nil {
+	if err := s.ledgerBackend.PrepareRange(s.ctx, &startLedger, nil); err != nil {
 		return fmt.Errorf("error preparando rango: %w", err)
 	}
 
@@ -95,8 +95,14 @@ func (s *OrchestratorService) ingestLoop(startLedger uint32) {
 
 // processLedger procesa un ledger individual
 func (s *OrchestratorService) processLedger(sequence uint32) error {
-	// Obtener ledger del RPC
-	ledgerMeta, err := s.rpcService.GetLedger(s.ctx, sequence)
+	// Obtener el backend
+	backend, err := s.ledgerBackend.HandleBackend()
+	if err != nil {
+		return fmt.Errorf("error obteniendo backend: %w", err)
+	}
+
+	// Obtener ledger del backend
+	ledger, err := backend.GetLedger(s.ctx, sequence)
 	if err != nil {
 		return fmt.Errorf("error obteniendo ledger: %w", err)
 	}
@@ -104,7 +110,7 @@ func (s *OrchestratorService) processLedger(sequence uint32) error {
 	// Crear transaction reader
 	txReader, err := ingest.NewLedgerTransactionReader(
 		s.ctx,
-		s.rpcService.Backend,
+		backend,
 		network.TestNetworkPassphrase,
 		sequence,
 	)
@@ -115,7 +121,7 @@ func (s *OrchestratorService) processLedger(sequence uint32) error {
 
 	// Procesar el ledger con cada procesador
 	for _, processor := range s.processors {
-		if err := processor.ProcessLedger(s.ctx, *ledgerMeta); err != nil {
+		if err := processor.ProcessLedger(s.ctx, ledger); err != nil {
 			log.Printf("⚠️  Procesador %s falló en ledger: %v", processor.Name(), err)
 			// Continuar con otros procesadores
 		}

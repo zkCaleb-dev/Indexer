@@ -1,7 +1,8 @@
-package backend
+package rpc_backend
 
-type GenericBackendBuilder[T any] interface {
-	Retrieve() (*T, error)
+// BackendBuilder is a generic interface for building rpc_backends in a modular way.
+type BackendBuilder[T any] interface {
+	Build() (*T, error)
 }
 
 // ClientTimeoutConfig The timeout integration for the RPC client is meant to be used with a time unit of seconds

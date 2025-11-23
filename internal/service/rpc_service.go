@@ -1,4 +1,4 @@
-package services
+package service
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type RPCConfig struct {
 	BufferSize  int
 }
 
-// RPCService abstrae el acceso al backend
+// RPCService abstrae el acceso al rpc_backend
 type RPCService struct {
 	Backend ledgerbackend.LedgerBackend
 	config  RPCConfig
@@ -74,7 +74,7 @@ func (s *RPCService) GetLedger(ctx context.Context, sequence uint32) (*xdr.Ledge
 	return &ledger, nil
 }
 
-// Close cierra el backend
+// Close cierra el rpc_backend
 func (s *RPCService) Close() error {
 	if s.Backend != nil {
 		return s.Backend.Close()

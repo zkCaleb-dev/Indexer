@@ -2,13 +2,14 @@ package indexer
 
 import (
 	"fmt"
+	"indexer/internal/service/ingest"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"indexer/internal/indexer/processors"
-	"indexer/internal/services"
+	"indexer/internal/service"
 )
 
 // Config contiene la configuración del indexador
@@ -21,31 +22,31 @@ type Config struct {
 // Indexer es el coordinador principal
 type Indexer struct {
 	config        Config
-	rpcService    *services.RPCService
-	ingestService *services.IngestService
-	processors    []services.Processor
+	rpcService    *service.RPCService
+	ingestService *ingest.OrchestratorService
+	processors    []service.Processor
 }
 
 // New crea una nueva instancia del indexador
 func New(config Config) (*Indexer, error) {
 	// Crear servicio RPC
-	rpcConfig := services.RPCConfig{
+	rpcConfig := service.RPCConfig{
 		Endpoint:    config.RPCEndpoint,
 		NetworkPass: config.NetworkPass,
 		BufferSize:  25,
 	}
 
-	rpcService, err := services.NewRPCService(rpcConfig)
+	rpcService, err := service.NewRPCService(rpcConfig)
 	if err != nil {
 		return nil, fmt.Errorf("error creando servicio RPC: %w", err)
 	}
 
 	// Crear procesadores
 	usdcProcessor := processors.NewUSDCTransferProcessor()
-	processorList := []services.Processor{usdcProcessor}
+	processorList := []service.Processor{usdcProcessor}
 
 	// Crear servicio de ingesta
-	ingestService := services.NewIngestService(rpcService, processorList)
+	ingestService := ingest.NewIngestService(rpcService, processorList)
 
 	// Iniciar consumidor de eventos en background
 	go consumeEvents(usdcProcessor)
