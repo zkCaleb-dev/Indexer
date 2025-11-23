@@ -744,14 +744,6 @@ services:
 
 The `rpc-abstraction` branch represents a significant architectural improvement with the following Amazonian principles applied:
 
-### Leadership Principles Demonstrated:
-
-1. **Ownership**: Clear service boundaries and responsibilities
-2. **Dive Deep**: Proper abstraction layers without over-engineering
-3. **Invent and Simplify**: Builder pattern, generic interfaces
-4. **Think Big**: Extensible design for future backend types
-5. **Insist on Highest Standards**: Interface-based design, testability
-
 ### Key Metrics:
 
 - **Cohesion**: [IMPROVED] Improved (domain-specific packages)
