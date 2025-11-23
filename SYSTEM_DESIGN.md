@@ -742,7 +742,7 @@ services:
 
 ## Conclusion
 
-The `rpc-abstraction` branch represents a significant architectural improvement with the following Amazonian principles applied:
+The `rpc-abstraction` branch represents a significant architectural improvement with the following applied:
 
 ### Key Metrics:
 
