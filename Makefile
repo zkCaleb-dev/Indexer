@@ -40,10 +40,10 @@ pgadmin:
 	@echo "✅ pgAdmin: http://localhost:5050 (admin@indexer.local / admin)"
 
 build:
-	go build -o indexer cmd/main.go
+	go build -o bin/indexer cmd/main.go
 
 run: build
-	./indexer
+	./bin/indexer
 
 clean:
 	@echo "🧹 Cleaning..."

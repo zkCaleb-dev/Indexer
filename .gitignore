@@ -10,3 +10,7 @@
 # IDE's
 .vscode/*
 .idea
+
+# Binaries
+indexer
+bin/
