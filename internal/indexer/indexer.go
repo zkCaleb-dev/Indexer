@@ -22,10 +22,10 @@ type Config struct {
 
 // Indexer is the main coordinator that manages the ledger backend, ingest service, and processors
 type Indexer struct {
-	config         Config
-	ledgerBackend  *rpc.LedgerBackend
-	ingestService  *ingest.OrchestratorService
-	processors     []ingest.Processor
+	config        Config
+	ledgerBackend *rpc.LedgerBackend
+	ingestService *ingest.OrchestratorService
+	processors    []ingest.Processor
 }
 
 // New creates a new indexer instance with the given configuration
@@ -63,10 +63,10 @@ func New(config Config) (*Indexer, error) {
 	go consumeEvents(usdcProcessor)
 
 	return &Indexer{
-		config:         config,
-		ledgerBackend:  ledgerBackend,
-		ingestService:  ingestService,
-		processors:     processorList,
+		config:        config,
+		ledgerBackend: ledgerBackend,
+		ingestService: ingestService,
+		processors:    processorList,
 	}, nil
 }
 

@@ -63,7 +63,6 @@ require (
 	github.com/segmentio/go-loggly v0.5.1-0.20171222203950-eb91657e62b2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 // indirect
-	github.com/stellar/soroban-tools v0.9.5 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
