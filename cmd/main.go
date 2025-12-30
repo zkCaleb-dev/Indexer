@@ -25,7 +25,8 @@ func main() {
 	// Obtener ledger actual si start = 0
 	if *startLedger == 0 {
 		// TODO: Implementar obtención del último ledger
-		*startLedger = 1696100 // Por ahora hardcodeado
+		*startLedger = 213747 // Por ahora hardcodeado
+
 	}
 
 	// Crear configuración

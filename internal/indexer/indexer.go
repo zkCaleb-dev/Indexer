@@ -13,28 +13,18 @@ import (
 	"indexer/internal/service/rpc"
 )
 
-// Config holds the indexer configuration including RPC endpoint, starting ledger, and network passphrase
-type Config struct {
-	RPCEndpoint string
-	StartLedger uint32
-	NetworkPass string
-}
-
 // Indexer is the main coordinator that manages the ledger backend, ingest service, and processors
 type Indexer struct {
-	config        Config
-	ledgerBackend *rpc.LedgerBackend
 	ingestService *ingest.OrchestratorService
 	processors    []ingest.Processor
 }
 
 // New creates a new indexer instance with the given configuration
-func New(config Config) (*Indexer, error) {
+func New() (*Indexer, error) {
+
 	// Create RPC client configuration
 	clientConfig := rpc_backend.ClientConfig{
-		Endpoint:          config.RPCEndpoint,
-		BufferSize:        25,
-		NetworkPassphrase: config.NetworkPass,
+		BufferSize: 25,
 		TimeoutConfig: rpc_backend.ClientTimeoutConfig{
 			Timeout:  30,
 			Retries:  3,
@@ -63,8 +53,6 @@ func New(config Config) (*Indexer, error) {
 	go consumeEvents(usdcProcessor)
 
 	return &Indexer{
-		config:        config,
-		ledgerBackend: ledgerBackend,
 		ingestService: ingestService,
 		processors:    processorList,
 	}, nil
@@ -72,10 +60,10 @@ func New(config Config) (*Indexer, error) {
 
 // Start initializes and runs the indexer, blocking until a termination signal is received
 func (idx *Indexer) Start() error {
-	log.Printf("🚀 Starting indexer with RPC: %s", idx.config.RPCEndpoint)
+	log.Printf("🚀 Starting indexer with RPC: %s")
 
 	// Start ingestion
-	if err := idx.ingestService.Start(idx.config.StartLedger); err != nil {
+	if err := idx.ingestService.StartUnboundedRange(0); err != nil {
 		return fmt.Errorf("error starting ingest: %w", err)
 	}
 
@@ -99,11 +87,6 @@ func (idx *Indexer) Stop() {
 
 	// Stop ingestion
 	idx.ingestService.Stop()
-
-	// Close ledger backend
-	if err := idx.ledgerBackend.Close(); err != nil {
-		log.Printf("Error closing ledger backend: %v", err)
-	}
 
 	log.Println("✅ Indexer stopped")
 }

@@ -10,6 +10,7 @@ import (
 // LedgerBackendHandlerService defines the interface for managing ledger backend lifecycle and range preparation
 type LedgerBackendHandlerService interface {
 	PrepareRange(ctx context.Context, start, end *uint32) error
+	GetLatestLedgerSequence(ctx context.Context) (uint32, error)
 	BackendHandlerService[ledgerbackend.LedgerBackend]
 }
 
@@ -76,4 +77,15 @@ func (l *LedgerBackend) PrepareRange(ctx context.Context, start, end *uint32) er
 	}
 
 	return l.backend.PrepareRange(ctx, ledgerRange)
+}
+
+// GetLatestLedgerSequence obtiene el número de secuencia del ledger más reciente
+func (l *LedgerBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
+
+	sequence, err := l.backend.GetLatestLedgerSequence(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	return sequence, nil
 }

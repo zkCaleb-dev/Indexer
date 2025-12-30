@@ -37,7 +37,7 @@ func NewIngestService(ledgerBackend rpc.LedgerBackendHandlerService, processors 
 }
 
 // Start begins the ledger ingestion process from the specified starting ledger
-func (s *OrchestratorService) Start(startLedger uint32) error {
+func (s *OrchestratorService) StartUnboundedRange(startLedger uint32) error {
 	log.Printf("🚀 Starting ingestion from ledger %d", startLedger)
 
 	// Prepare unbounded range for continuous streaming
