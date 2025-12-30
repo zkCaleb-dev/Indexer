@@ -207,6 +207,8 @@ github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/stellar/go v0.0.0-20251112184353-8c72b189fb95 h1:n4FLyukbaYnWCu3gfia0aGlgxGFPTNo7wfi+xG0J/L0=
 github.com/stellar/go v0.0.0-20251112184353-8c72b189fb95/go.mod h1:WPmvC2UlESKdl1W/+FJi4Vm9+iF/X9QFUPW9k3v90eY=
+github.com/stellar/go-stellar-sdk v0.1.0 h1:MfV7dv4k6xQQrWeKT7npWyKhjoayphLVGwXKtTLNeH8=
+github.com/stellar/go-stellar-sdk v0.1.0/go.mod h1:fZPcxQZw1I0zZ+X76uFcVPqmQCaYbWc87lDFW/kQJaY=
 github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 h1:OzCVd0SV5qE3ZcDeSFCmOWLZfEWZ3Oe8KtmSOYKEVWE=
 github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2/go.mod h1:yoxyU/M8nl9LKeWIoBrbDPQ7Cy+4jxRcWcOayZ4BMps=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

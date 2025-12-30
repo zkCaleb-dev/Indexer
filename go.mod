@@ -62,6 +62,7 @@ require (
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/segmentio/go-loggly v0.5.1-0.20171222203950-eb91657e62b2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/stellar/go-stellar-sdk v0.1.0 // indirect
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
